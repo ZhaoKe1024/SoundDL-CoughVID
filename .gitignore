@@ -1,11 +1,4 @@
 __pycache__/
 .idea/
-/datasets/
-/models/
-/run/
 /runs/
-/ackit/runs/
-/tools/
 /.ipynb_checkpoints/
-/ackit/.ipynb_checkpoints/
-/ackit/data_utils/.ipynb_checkpoints/
