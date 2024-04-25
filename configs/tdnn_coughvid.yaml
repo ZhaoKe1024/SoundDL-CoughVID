@@ -1,0 +1,13 @@
+run_save_dir: "./runs/tdnn_coughvid/"
+
+model:
+  num_class: 3
+  input_length: 94
+  wav_length: 48000
+  input_dim: 512
+  n_mels: 80
+
+fit:
+  batch_size: 64
+  epochs: 35
+  start_scheduler_epoch: 6
