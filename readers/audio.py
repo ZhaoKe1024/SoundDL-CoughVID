@@ -507,28 +507,7 @@ class AudioSegment(object):
                 self.subsegment(end_sec=duration)
 
     def wav_padding(self, save_len=48000):
-        L = self._samples.shape[0]
-        if L >= save_len:
-            return
-        new_signal = np.zeros(save_len)
-        resi = save_len - L
-        new_signal[:L] = self.samples
-        # print("resi:", resi)
-        interval = 1500
-        i = 1
-        while resi > 0:
-            # print("resi:", resi)
-            if resi - interval - L > 0:
-                new_signal[i * (L + interval):i * (L + interval) + L] = self.samples
-                resi -= interval + L
-            elif resi - interval > 0:
-                LL = resi - interval
-                new_signal[i * (L + interval):i * (L + interval) + LL] = self._samples[:LL]
-                break
-            else:
-                break
-            i += 1
-        self._samples = new_signal
+        self._samples = wav_padding(self.samples, save_len=save_len)
 
 
 def _convert_samples_from_float32(samples, dtype):
@@ -576,6 +555,31 @@ def _convert_samples_to_float32(samples):
     return float32_samples
 
 
+def wav_padding(wave, save_len=48000):
+    L = wave.shape[0]
+    if L >= save_len:
+        return
+    new_signal = np.zeros(save_len)
+    resi = save_len - L
+    new_signal[:L] = wave
+    # print("resi:", resi)
+    interval = 1500
+    i = 1
+    while resi > 0:
+        # print("resi:", resi)
+        if resi - interval - L > 0:
+            new_signal[i * (L + interval):i * (L + interval) + L] = wave
+            resi -= interval + L
+        elif resi - interval > 0:
+            LL = resi - interval
+            new_signal[i * (L + interval):i * (L + interval) + LL] = wave[:LL]
+            break
+        else:
+            break
+        i += 1
+    return new_signal
+
+
 def wav_slice_padding(old_signal, save_len=160000):
     new_signal = np.zeros(save_len)
     if old_signal.shape[0] < save_len:
@@ -589,7 +593,7 @@ def wav_slice_padding(old_signal, save_len=160000):
     return new_signal
 
 
-def vad(wav, top_db=20, overlap=200):
+def vad(wav, top_db=40, overlap=200):
     # Split an audio signal into non-silent intervals
     intervals = librosa.effects.split(wav, top_db=top_db)
     if len(intervals) == 0:
