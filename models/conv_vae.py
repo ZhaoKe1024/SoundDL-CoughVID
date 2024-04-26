@@ -140,6 +140,16 @@ class MLP(nn.Module):
         return self.mlp(x)
 
 
+MSE_loss = nn.MSELoss(reduction="mean")
+
+
+def vae_loss(X, X_hat, mean, logvar, kl_weight=0.0001):
+    reconstruction_loss = MSE_loss(X_hat, X)
+    KL_divergence = 0.5 * torch.sum(-1 - logvar + torch.exp(logvar) + mean ** 2)
+    # print(reconstruction_loss.item(), KL_divergence.item())
+    return reconstruction_loss + kl_weight * KL_divergence
+
+
 if __name__ == '__main__':
     # device = torch.device("cuda") if torch.cuda.is_available() else "cpu"
     # m = ConvVAE(shape=(1, 94, 128), flat=True).to(device)

@@ -3,9 +3,17 @@
 # @Time : 2024-01-24 18:10
 
 cough_dataset = {
-    "dev_dir": "D:/DATAS/Medical/COUGHVID-public_dataset_v3/coughvid_20211012/",
-    "sr": 16000,
-    "batch_size": 32,
-    "lr": 0.001,
-    "optim": "adam",
+    "run_save_dir": "./runs/tdnn_coughvid/",
+    "model": {
+        "num_class": 3,
+        "input_length": 94,
+        "wav_length": 48000,
+        "input_dim": 512,
+        "n_mels": 128,
+    },
+    "fit": {
+        "batch_size": 64,
+        "epochs": 23,
+        "start_scheduler_epoch": 6
+    },
 }

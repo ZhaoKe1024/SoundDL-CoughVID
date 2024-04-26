@@ -12,6 +12,32 @@ from readers.audio import AudioSegment
 from readers.featurizer import wav_slice_padding
 
 
+def CoughVID_NormalAnomaly(filename="./datasets/waveinfo_labeled_fine.csv", istrain=True, isdemo=False):
+    healthy_p_list = []
+    unhealthy_p_list = []
+    healthy_label_list = []
+    unhealthy_label_list = []
+    # healthy_anomaly_list = []
+    # unhealthy_anomaly_list = []
+    with open(filename, 'r') as fin:
+        fin.readline()
+        line = fin.readline().strip()
+        while line:
+            parts = line.split(',')
+            status = int(float(parts[6]))
+            if status == 0:
+                healthy_p_list.append(parts[1])
+                healthy_label_list.append(np.array(float(parts[6]), dtype=np.int64))
+                # healthy_anomaly_list.append(np.array(0, dtype=np.int64))
+            else:
+
+                unhealthy_p_list.append(parts[1])
+                unhealthy_label_list.append(np.array(float(parts[6]), dtype=np.int64))
+                # unhealthy_anomaly_list.append(np.array(1, dtype=np.int64))
+            line = fin.readline().strip()
+    return healthy_p_list, healthy_label_list, unhealthy_p_list, unhealthy_label_list
+
+
 def CoughVID_Lists(filename="../../datasets/waveinfo_annotation.csv", istrain=True, isdemo=False):
     path_list = []
     label_list = []

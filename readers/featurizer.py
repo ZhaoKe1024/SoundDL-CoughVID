@@ -12,6 +12,16 @@ import torchaudio
 from torch import nn
 import torchaudio.compliance.kaldi as Kaldi
 from torchaudio.transforms import MelSpectrogram, Spectrogram, MFCC
+from readers.audio import AudioSegment
+
+
+def get_wav_label(filename):
+    audioseg = AudioSegment.from_file(file=filename)
+    audioseg.vad()
+    audioseg.resample(target_sample_rate=16000)
+    audioseg.crop(duration=3.0, mode="train")
+    audioseg.wav_padding()
+    return audioseg.samples
 
 
 class Wave2Mel(object):
