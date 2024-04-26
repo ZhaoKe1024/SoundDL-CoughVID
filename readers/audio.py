@@ -102,6 +102,9 @@ class AudioSegment(object):
         return ("%s: num_samples=%d, sample_rate=%d, duration=%.2fsec, "
                 "rms=%.2fdB" % (type(self), self.num_samples, self.sample_rate, self.duration, self.rms_db))
 
+    def __len__(self):
+        return self.samples.shape[0]
+
     @classmethod
     def from_file(cls, file):
         """从音频文件创建音频段
@@ -502,6 +505,30 @@ class AudioSegment(object):
                 self.random_subsegment(duration)
             else:
                 self.subsegment(end_sec=duration)
+
+    def wav_padding(self, save_len=48000):
+        L = self._samples.shape[0]
+        if L >= save_len:
+            return
+        new_signal = np.zeros(save_len)
+        resi = save_len - L
+        new_signal[:L] = self.samples
+        # print("resi:", resi)
+        interval = 1500
+        i = 1
+        while resi > 0:
+            # print("resi:", resi)
+            if resi - interval - L > 0:
+                new_signal[i * (L + interval):i * (L + interval) + L] = self.samples
+                resi -= interval + L
+            elif resi - interval > 0:
+                LL = resi - interval
+                new_signal[i * (L + interval):i * (L + interval) + LL] = self._samples[:LL]
+                break
+            else:
+                break
+            i += 1
+        self._samples = new_signal
 
 
 def _convert_samples_from_float32(samples, dtype):

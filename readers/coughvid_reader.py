@@ -9,6 +9,7 @@ import librosa
 import time
 from torch.utils.data import Dataset
 from readers.audio import AudioSegment
+from readers.featurizer import wav_slice_padding
 
 
 def CoughVID_Lists(filename="../../datasets/waveinfo_annotation.csv", istrain=True, isdemo=False):
@@ -56,6 +57,8 @@ class CoughVID_Dataset(Dataset):
         audioseg.vad()
         audioseg.resample(target_sample_rate=16000)
         audioseg.crop(duration=3.0, mode="train")
+        audioseg.wav_padding()
+        assert len(audioseg) == 48000, "Error Length"
         self.wav_list.append(audioseg.samples)
 
 
