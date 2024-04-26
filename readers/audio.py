@@ -114,7 +114,7 @@ class AudioSegment(object):
         assert os.path.exists(file), f'文件不存在，请检查路径：{file}'
         try:
             # samples, sample_rate = soundfile.read(file, dtype='float32')
-            samples, sample_rate = librosa.core.load(file)  # , dtype='float32')
+            samples, sample_rate = librosa.load(file)  # , dtype='float32')
         except:
             # 支持更多格式数据
             sample_rate = 16000
