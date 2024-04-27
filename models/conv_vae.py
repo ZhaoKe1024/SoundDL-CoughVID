@@ -10,12 +10,53 @@ from torch import nn
 
 
 class ConvVAE(nn.Module):
-    def __init__(self, shape=(1, 94, 128), hidden_dim=128, flat=True):
+    def __init__(self, inp_shape=(1, 94, 128), latent_dim=128, feat_c=8, flat=True):
         super().__init__()
-        c, h, w = shape
+        self.flat = flat
+        self.encoder = VEncoder(inp_shape=inp_shape, flat=flat)
+        self.cc, hh, ww = self.encoder.cc, self.encoder.hh, self.encoder.ww
+        if flat:
+            self.calc_mean = MLP([self.cc * hh * ww, 128, 64, latent_dim], last_activation=False)
+            self.calc_logvar = MLP([self.cc * hh * ww, 128, 64, latent_dim], last_activation=False)
+        else:
+            self.calc_mean = nn.Conv2d(128, feat_c, kernel_size=1, stride=1, padding=0,
+                                       bias=False)
+            self.calc_logvar = nn.Conv2d(128, feat_c, kernel_size=1, stride=1, padding=0,
+                                         bias=False)
+        self.decoder = VDecoder(inp_shape=(self.cc, hh, ww), flat=flat, latent_dim=latent_dim, feat_c=feat_c)
+
+        # self.cls = nn.Sequential()
+        # self.cls.append(nn.Linear(hidden_dim, 32))
+        # self.cls.append(nn.BatchNorm1d(32))
+        # self.cls.append(nn.ReLU(inplace=True))
+        # self.cls.append(nn.Linear(32, class_num))
+
+    def sampling(self, mean, logvar, device=torch.device("cuda")):
+        eps = torch.randn(mean.shape).to(device)
+        sigma = 0.5 * torch.exp(logvar)
+        return mean + eps * sigma
+
+    def forward(self, x):
+        # encoder
+        x_feat = self.encoder(x)
+        # print("x_feat conv2:", x_feat.shape)
+        # flatten
+
+        mean_lant, logvar_lant = self.calc_mean(x_feat), self.calc_logvar(x_feat)
+        z = self.sampling(mean_lant, logvar_lant, device=torch.device("cuda"))
+
+        print("recon:", z.shape)
+        x_recon = self.decoder(inp_feat=z, shape_list=self.encoder.shapes)
+        # x_pred = self.cls(x_feat)
+        return x_recon, z, mean_lant, logvar_lant
+
+
+class VEncoder(nn.Module):
+    def __init__(self, inp_shape=(1, 94, 128), latent_dim=64, flat=True):
+        super().__init__()
+        c, h, w = inp_shape
         hh, ww = h, w
         self.shapes = [(hh, ww)]
-
         self.encoder_conv1 = nn.Sequential()
 
         self.encoder_conv1.append(nn.Conv2d(c, 16, kernel_size=4, stride=2, padding=1))
@@ -50,27 +91,28 @@ class ConvVAE(nn.Module):
         hh = (hh - 3 + 2 * 0) // 2 + 1  # 5
         ww = (ww - 3 + 2 * 0) // 2 + 1  # 7
         self.shapes.append((hh, ww))
-        # -------------------------sample------------
+        # ----------------- flatten (128, 5, 7) -> 128*5*7 ------------
         self.cc = 128
+        self.hh, self.ww = self.shapes[-1]
         self.flat = flat
         if flat:
-            self.hh, self.ww = self.shapes[-1]
             self.flatten = nn.Flatten(start_dim=1)
 
-            self.calc_mean = MLP([self.cc * hh * ww, 128, 64, hidden_dim], last_activation=False)
-            self.calc_logvar = MLP([self.cc * hh * ww, 128, 64, hidden_dim], last_activation=False)
+    def forward(self, input_x):
+        # encoder
+        x_feat = self.encoder_conv2(self.encoder_conv1(input_x))
+        # print("x_feat conv2:", x_feat.shape)
+        # flatten
+        if self.flat:
+            x_feat = self.flatten(x_feat)
+        return x_feat
 
-            self.decoder_lin = MLP([hidden_dim, 64, 128, self.cc * self.hh * self.ww])
-            self.unflatten = nn.Unflatten(dim=1, unflattened_size=(self.cc, self.hh, self.ww))
-        else:
 
-            self.calc_mean = nn.Conv2d(128, 8, kernel_size=1, stride=1, padding=0,
-                                       bias=False)
-            self.calc_logvar = nn.Conv2d(128, 8, kernel_size=1, stride=1, padding=0,
-                                         bias=False)
-            self.decoder_proj = nn.Conv2d(8, 128, kernel_size=1, stride=1, padding=0,
-                                          bias=False)
+class VDecoder(nn.Module):
+    def __init__(self, inp_shape=(128, 5, 7), latent_dim=128, feat_c=8, flat=True):
         # ------------------------decoder---------------
+        super().__init__()
+        self.flat = flat
         self.decoder_conv1 = nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=0)
         self.decoder_norm1 = nn.Sequential(nn.BatchNorm2d(64), nn.ReLU(inplace=True))
 
@@ -81,46 +123,28 @@ class ConvVAE(nn.Module):
         self.decoder_norm3 = nn.Sequential(nn.BatchNorm2d(16), nn.ReLU(inplace=True))
 
         self.decoder_conv4 = nn.ConvTranspose2d(16, 1, kernel_size=4, stride=2, padding=1)
-        # self.cls = nn.Sequential()
-        # self.cls.append(nn.Linear(hidden_dim, 32))
-        # self.cls.append(nn.BatchNorm1d(32))
-        # self.cls.append(nn.ReLU(inplace=True))
-        # self.cls.append(nn.Linear(32, class_num))
-
-    def sampling(self, mean, logvar, device=torch.device("cuda")):
-        eps = torch.randn(mean.shape).to(device)
-        sigma = 0.5 * torch.exp(logvar)
-        return mean + eps * sigma
-
-    def forward(self, x):
-        # encoder
-        x_feat = self.encoder_conv2(self.encoder_conv1(x))
-        # print("x_feat conv2:", x_feat.shape)
-        # flatten
-        if self.flat:
-            x_feat = self.flatten(x_feat)
-            # print("x_feat flatten:", x_feat.shape)
-            # sample
-            mean_lant, logvar_lant = self.calc_mean(x_feat), self.calc_logvar(x_feat)
-            z = self.sampling(mean_lant, logvar_lant, device=torch.device("cuda"))
-            # unflatten
-            x_recon = self.unflatten(self.decoder_lin(z))
+        if flat:
+            self.decoder_lin = MLP([latent_dim, 64, 128, inp_shape[0] * inp_shape[1] * inp_shape[2]])
+            self.unflatten = nn.Unflatten(dim=1, unflattened_size=(inp_shape[0], inp_shape[1], inp_shape[2]))
         else:
-            mean_lant, logvar_lant = self.calc_mean(x_feat), self.calc_logvar(x_feat)
-            z = self.sampling(mean_lant, logvar_lant, device=torch.device("cuda"))
-            x_recon = self.decoder_proj(z)
-        # print("recon:", x_recon.shape)
+            self.decoder_proj = nn.Conv2d(feat_c, 128, kernel_size=1, stride=1, padding=0,
+                                          bias=False)
+
+    def forward(self, inp_feat, shape_list):
+        if self.flat:
+            x_recon = self.unflatten(self.decoder_lin(inp_feat))
+        else:
+            x_recon = self.decoder_proj(inp_feat)
+        print(x_recon.shape)
         # decoder
-        x_recon = self.decoder_conv1(x_recon, output_size=self.shapes[-2])
+        x_recon = self.decoder_conv1(x_recon, output_size=shape_list[-2])
         x_recon = self.decoder_norm1(x_recon)
-        x_recon = self.decoder_conv2(x_recon, output_size=self.shapes[-3])
+        x_recon = self.decoder_conv2(x_recon, output_size=shape_list[-3])
         x_recon = self.decoder_norm2(x_recon)
-        x_recon = self.decoder_conv3(x_recon, output_size=self.shapes[-4])
+        x_recon = self.decoder_conv3(x_recon, output_size=shape_list[-4])
         x_recon = self.decoder_norm3(x_recon)
-        x_recon = self.decoder_conv4(x_recon, output_size=self.shapes[-5])
-        # x_recon = self.decoder_norm1(x_recon)
-        # x_pred = self.cls(x_feat)
-        return x_recon, z, mean_lant, logvar_lant
+        x_recon = self.decoder_conv4(x_recon, output_size=shape_list[-5])
+        return x_recon
 
 
 class MLP(nn.Module):
@@ -158,7 +182,27 @@ if __name__ == '__main__':
     # print(y_pred.shape)
 
     device = torch.device("cuda") if torch.cuda.is_available() else "cpu"
-    m = ConvVAE(shape=(1, 94, 128), flat=False).to(device)
+
+    # m = ConvVAE(inp_shape=(1, 94, 128), flat=True).to(device)
+    # x = torch.randn(size=(16, 1, 94, 128)).to(device)
+    # x_recon, z, mean_lant, logvar_lant = m(x)
+    # print(x_recon.shape, z.shape, mean_lant.shape, logvar_lant.shape)
+
+    # m = ConvVAE(inp_shape=(1, 94, 128), flat=False).to(device)
+    # x_recon, z, mean_lant, logvar_lant = m(x)
+    # print(x_recon.shape, z.shape, mean_lant.shape, logvar_lant.shape)
+
+    enc1 = VEncoder(inp_shape=(1, 94, 128), flat=True).to(device)
+    enc2 = VEncoder(inp_shape=(1, 94, 128), flat=False).to(device)
     x = torch.randn(size=(16, 1, 94, 128)).to(device)
-    y_pred = m(x)  # (28-3+2p)/2+1
-    print(y_pred.shape)
+    x_feat1 = enc1(x)  # [16, 4480]
+    x_feat2 = enc2(x)  # [16, 128, 5, 7]
+    print(x_feat1.shape, x_feat2.shape)
+
+    dec1 = VDecoder(inp_shape=(128, 5, 7), flat=True, latent_dim=128, feat_c=8).to(device)
+    dec2 = VDecoder(inp_shape=(128, 5, 7), flat=False, latent_dim=128, feat_c=8).to(device)
+    l_feat1 = torch.randn(size=(16, 128)).to(device)
+    l_feat2 = torch.randn(size=(16, 8, 5, 7)).to(device)
+    x_recon1 = dec1(l_feat1, enc1.shapes)
+    x_recon2 = dec2(l_feat2, enc2.shapes)
+    print(x_recon1.shape, x_recon2.shape)
