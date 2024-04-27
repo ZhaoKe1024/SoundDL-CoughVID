@@ -17,7 +17,7 @@ from readers.audio import AudioSegment
 
 def get_wav_label(filename):
     audioseg = AudioSegment.from_file(file=filename)
-    audioseg.vad()
+    audioseg.vad(top_db=40)
     audioseg.resample(target_sample_rate=16000)
     audioseg.crop(duration=3.0, mode="train")
     audioseg.wav_padding()

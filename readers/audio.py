@@ -103,7 +103,7 @@ class AudioSegment(object):
                 "rms=%.2fdB" % (type(self), self.num_samples, self.sample_rate, self.duration, self.rms_db))
 
     def __len__(self):
-        return self.samples.shape[0]
+        return self._samples.shape[0]
 
     @classmethod
     def from_file(cls, file):
@@ -558,7 +558,7 @@ def _convert_samples_to_float32(samples):
 def wav_padding(wave, save_len=48000):
     L = wave.shape[0]
     if L >= save_len:
-        return
+        return wave
     new_signal = np.zeros(save_len)
     resi = save_len - L
     new_signal[:L] = wave
