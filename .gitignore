@@ -2,3 +2,6 @@ __pycache__/
 .idea/
 /runs/
 /.ipynb_checkpoints/
+
+*.pyc
+*.pt
