@@ -12,6 +12,38 @@ from readers.audio import AudioSegment
 from readers.featurizer import wav_slice_padding
 
 
+def CoughVID_Class(filename="./datasets/waveinfo_labedfine_forcls.csv", isdemo=False):
+    train_x, train_y = [], []
+    test_x, test_y = [], []
+    # label_list = []
+    # train_list, test_list = [], []
+    cnt = [0] * 3
+    with open(filename, 'r') as fin:
+        fin.readline()
+        line = fin.readline().strip()
+        ind = 0
+        while line:
+            parts = line.split(',')
+            s = int(parts[7])
+            cnt[s] += 1
+            if cnt[s] < 100:
+                # test_list.append(ind)
+                test_x.append(parts[1])
+                test_y.append(s)
+            else:
+                # train_list.append(ind)
+                train_x.append(parts[1])
+                train_y.append(s)
+            line = fin.readline().strip()
+            ind += 1
+            # if isdemo:
+            #     if ind > 30:
+            #         break
+    print("num of trainingset: ", len(train_x), len(train_y))
+    print("num of testingset:", len(test_x), len(test_y))
+    return train_x, train_y, test_x, test_y
+
+
 def CoughVID_NormalAnomaly(filename="./datasets/waveinfo_labeled_fine.csv", istrain=True, isdemo=False):
     healthy_p_list = []
     unhealthy_p_list = []
@@ -93,19 +125,19 @@ if __name__ == '__main__':
     # # stat_coughvid()
     # label_list = read_labels_from_csv()
     # print(label_list.shape)
-    from torch.utils.data import DataLoader
-    from ackit.data_utils.collate_fn import collate_fn
-    from ackit.data_utils.featurizer import Wave2Mel
-
-    cough_dataset = CoughVID_Dataset()
-    w2m = Wave2Mel(sr=16000, n_mels=80)
-    train_loader = DataLoader(cough_dataset, batch_size=32, shuffle=False,
-                              collate_fn=collate_fn)
-    for i, (x_wav, y_label, max_len_rate) in enumerate(train_loader):
-        print(x_wav.shape)
-        print(y_label)
-        print(max_len_rate)
-        x_mel = w2m(x_wav)
-        print(x_mel[0])
-        break
+    # from torch.utils.data import DataLoader
+    # from ackit.data_utils.collate_fn import collate_fn
+    # from ackit.data_utils.featurizer import Wave2Mel
+    plist, llist = CoughVID_Class()
+    # cough_dataset = CoughVID_Dataset(plist, llist)
+    # w2m = Wave2Mel(sr=16000, n_mels=80)
+    # train_loader = DataLoader(cough_dataset, batch_size=32, shuffle=False,
+    #                           collate_fn=collate_fn)
+    # for i, (x_wav, y_label, max_len_rate) in enumerate(train_loader):
+    #     print(x_wav.shape)
+    #     print(y_label)
+    #     print(max_len_rate)
+    #     x_mel = w2m(x_wav)
+    #     print(x_mel[0])
+    #     break
     # print(cough_dataset.__getitem__(15084))

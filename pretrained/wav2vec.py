@@ -109,7 +109,7 @@ class Wav2Vec(nn.Module):
         )
 
         if pretrained:
-            filename = "wav2vec_large.pt"
+            filename = "../pretrained/wav2vec_large.pt"
             pretrained_weights_link = "https://dl.fbaipublicfiles.com/fairseq/wav2vec/wav2vec_large.pt"
             if pretrained_path == None:
                 if not os.path.exists(filename):
