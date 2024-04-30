@@ -563,7 +563,7 @@ def wav_padding(wave, save_len=48000):
     resi = save_len - L
     new_signal[:L] = wave
     # print("resi:", resi)
-    interval = 3200
+    interval = 4000
     i = 1
     while resi > 0:
         # print("resi:", resi)

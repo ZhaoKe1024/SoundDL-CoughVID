@@ -56,3 +56,26 @@ class FocalLoss(nn.Module):
         else:
             loss = batch_loss.sum()
         return loss
+
+
+if __name__ == '__main__':
+    num_classes = 3
+    # 定义自定义权重
+    # 这里只是示例，你可以根据你的需求自行设置权重
+    # 这里使用了相同的权重，你可以根据类别的重要性来设置不同的权重
+    class_weights = torch.tensor([1.0, 2.0, 3.0])
+    # 创建CrossEntropyLoss损失函数，并传入自定义权重
+    criterion = nn.CrossEntropyLoss(weight=class_weights)
+    # 假设你有一个预测的张量和一个目标张量
+    # 假设批次大小为4
+    # 这里的预测张量的形状是(4, num_classes)，目标张量的形状是(4,)
+    # 其中预测张量的每一行是对应样本的类别预测概率，目标张量是真实的类别标签
+    # 你需要根据你的具体情况来替换这些示例数据
+    predictions = torch.tensor([[0.2, 0.5, 0.3],
+                                [0.1, 0.2, 0.7],
+                                [0.8, 0.1, 0.1],
+                                [0.4, 0.4, 0.2]])
+    targets = torch.tensor([0, 1, 2, 0])
+    # 计算损失
+    loss = criterion(predictions, targets)
+    print(loss)

@@ -106,7 +106,8 @@ class CoughVID_Dataset(Dataset):
         # tmpseg = copy(self.wav_list[ind])  # 可能造成了内存爆炸的问题？？？
         tmpseg = self.wav_list[ind]
         if len(tmpseg) > 48000:
-            start_time = random.randint(0, len(tmpseg) - 48000)
+            # start_time = random.randint(0, len(tmpseg) - 48000)
+            start_time = 0
             tmpseg = tmpseg[start_time:start_time+48000]
         if len(tmpseg) < 48000:
             tmpseg = wav_padding(tmpseg)
