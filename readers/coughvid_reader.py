@@ -4,12 +4,10 @@
 import os
 import numpy as np
 from tqdm import tqdm
-import pandas as pd
-import librosa
-import time
+import random
 from torch.utils.data import Dataset
-from readers.audio import AudioSegment
-from readers.featurizer import wav_slice_padding
+from readers.audio import AudioSegment, wav_padding
+# from readers.featurizer import wav_slice_padding
 
 
 def CoughVID_Class(filename="./datasets/waveinfo_labedfine_forcls.csv", isdemo=False):
@@ -36,9 +34,9 @@ def CoughVID_Class(filename="./datasets/waveinfo_labedfine_forcls.csv", isdemo=F
                 train_y.append(s)
             line = fin.readline().strip()
             ind += 1
-            # if isdemo:
-            #     if ind > 30:
-            #         break
+            if isdemo:
+                if ind > 64:
+                    break
     print("num of trainingset: ", len(train_x), len(train_y))
     print("num of testingset:", len(test_x), len(test_y))
     return train_x, train_y, test_x, test_y
@@ -105,7 +103,15 @@ class CoughVID_Dataset(Dataset):
             self.append_wav(item)
 
     def __getitem__(self, ind):
-        return self.wav_list[ind], self.label_list[ind]
+        # tmpseg = copy(self.wav_list[ind])  # 可能造成了内存爆炸的问题？？？
+        tmpseg = self.wav_list[ind]
+        if len(tmpseg) > 48000:
+            start_time = random.randint(0, len(tmpseg) - 48000)
+            tmpseg = tmpseg[start_time:start_time+48000]
+        if len(tmpseg) < 48000:
+            tmpseg = wav_padding(tmpseg)
+        assert len(tmpseg) == 48000, "Error Length"
+        return tmpseg, self.label_list[ind]
 
     def __len__(self):
         return len(self.path_list)
@@ -114,10 +120,8 @@ class CoughVID_Dataset(Dataset):
         audioseg = AudioSegment.from_file(file_path)
         audioseg.vad()
         audioseg.resample(target_sample_rate=16000)
-        audioseg.crop(duration=3.0, mode="train")
-        audioseg.wav_padding()
-        assert len(audioseg) == 48000, "Error Length"
         self.wav_list.append(audioseg.samples)
+        # return audioseg.samples
 
 
 if __name__ == '__main__':

@@ -1,0 +1,7 @@
+这次def __getitem__(self, ind):里面写几行：
+tmpseg = copy(self.wav_list[ind])
+tmpseg.crop(duration=3.0, mode="train")
+tmpseg.wav_padding()
+assert len(tmpseg) == 48000, "Error Length"
+return tmpseg.samples, self.label_list[ind]
+，虽然慢，但是随机切片是必要的，或者先读，后续再切似乎更快吧？batch_size调到64，希望能缓解样本标签不均衡的问题？
