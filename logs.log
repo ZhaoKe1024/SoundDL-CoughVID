@@ -3100,3 +3100,27 @@ AttributeError: 'RidgeClassifier' object has no attribute 'predict_proba'
 2024-04-30 18:26:03,007:WARNING:C:\Users\zhaoke\miniconda3\envs\torch-0\lib\site-packages\joblib\_memmapping_reducer.py:598: UserWarning: Failed to delete temporary folder: C:\Users\zhaoke\AppData\Local\Temp\joblib_memmapping_folder_19892_e4dd60f90deb41fca6f33a7201332033_97c6541a8d8f474291e28f85fd3f8173
   warnings.warn("Failed to delete temporary folder: {}"
 
+2024-05-09 14:14:45,332:WARNING:
+'cuml' is a soft dependency and not included in the pycaret installation. Please run: `pip install cuml` to install.
+2024-05-09 14:14:45,332:WARNING:
+'cuml' is a soft dependency and not included in the pycaret installation. Please run: `pip install cuml` to install.
+2024-05-09 14:14:45,332:WARNING:
+'cuml' is a soft dependency and not included in the pycaret installation. Please run: `pip install cuml` to install.
+2024-05-09 14:14:45,332:WARNING:
+'cuml' is a soft dependency and not included in the pycaret installation. Please run: `pip install cuml` to install.
+2024-05-09 14:38:02,167:WARNING:C:\Users\zhaoke\AppData\Local\Temp\ipykernel_5788\2226775431.py:75: UserWarning: PySoundFile failed. Trying audioread instead.
+  audio, sample_rate = librosa.load(path, mono=True)
+
+2024-05-09 14:38:02,168:WARNING:C:\Users\zhaoke\miniconda3\envs\torch-0\lib\site-packages\librosa\core\audio.py:183: FutureWarning: librosa.core.audio.__audioread_load
+	Deprecated as of librosa version 0.10.0.
+	It will be removed in librosa version 1.0.
+  y, sr_native = __audioread_load(path, offset, duration, dtype)
+
+2024-05-09 14:38:02,529:WARNING:C:\Users\zhaoke\AppData\Local\Temp\ipykernel_5788\2226775431.py:75: UserWarning: PySoundFile failed. Trying audioread instead.
+  audio, sample_rate = librosa.load(path, mono=True)
+
+2024-05-09 14:38:02,529:WARNING:C:\Users\zhaoke\miniconda3\envs\torch-0\lib\site-packages\librosa\core\audio.py:183: FutureWarning: librosa.core.audio.__audioread_load
+	Deprecated as of librosa version 0.10.0.
+	It will be removed in librosa version 1.0.
+  y, sr_native = __audioread_load(path, offset, duration, dtype)
+
