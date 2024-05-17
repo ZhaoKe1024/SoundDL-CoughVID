@@ -114,3 +114,18 @@ class LSTM_Attn_Classifier(nn.Module):
             return out, attn_weights
         else:
             return out
+
+
+def test_lstm():
+    import torch
+    # input_size: 时间步
+    # hidden_size:
+    # num_layer: 层数
+    x = torch.randn(64, 64, 128)  # (bs, length, dim)
+    lstm = LSTMClassifier(input_size=128, hidden_size=128, num_layers=2, num_classes=2)
+    print(lstm(x))
+
+
+if __name__ == '__main__':
+    main()
+    # test_lstm()
