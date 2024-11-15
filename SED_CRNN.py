@@ -51,6 +51,7 @@ def get_model(data_in, data_out, dropout_rate, nb_cnn2d_filt, pool_size,
     return model
 """
 import os
+import time
 import random
 import numpy as np
 import pandas as pd
@@ -153,7 +154,7 @@ def wav_crop_padding(mel, fixed_length=16):
     return new_mel
 
 
-def read_metafile(w2m):
+def read_slice_file(w2m):
     slice_raw = pd.read_csv(ROOT + 'neucough_metainfo_slice.txt', header=0, index_col=0)
     lab2name = {0: "non-cough", 1: "cough"}
     fixed_length = 16
@@ -202,6 +203,22 @@ def read_metafile(w2m):
         #     print("idx:", idx, mel16_rand_wavlen)
         #     break
     return data_list, label_list
+
+
+def read_fullwave_file():
+    slice_raw = pd.read_csv(ROOT + 'neucough_metainfo_slice.txt', header=0, index_col=0)
+    data_list = []
+    position_list = []
+    for idx, item in tqdm(enumerate(slice_raw.itertuples()), desc="ReadFiles:"):
+        name, st, en = item[0], item[1], item[2]
+        st, en = min2sec(st), min2sec(en)
+        # print("st, en:", st, en)
+        audio_path = "F:/DATAS/NEUCOUGHDATA_FULL/{}_audiodata_元音字母a.wav".format(name)
+        sample, sr = read_audio(audio_path, st=None, en=None)
+        # 有一个很大的问题，正样本都是填充0更敏感，负样本却是随机截取的更鲁棒，要想办法也把正样本也调整st, en来随机截取
+        data_list.append(sample)
+        position_list.append((st, en))
+    return data_list, position_list
 
 
 class NEUCOUGHDataset(Dataset):
@@ -255,25 +272,25 @@ class CRNN(nn.Module):
             self.sed_module.append(nn.Linear(inp, oup))
             self.sed_module.append(nn.Dropout(p=dropout_rate))
         self.sed_module.append(nn.Linear(fnn_size[-1], 2))
-        self.sed_module.append(nn.Softmax())
+        self.sed_module.append(nn.Softmax(dim=-1))
 
     def forward(self, x_mel):
         # out = self.feature_extractor(x_mel)
         x_mel = x_mel.unsqueeze(1).transpose(2, 3)  # [16, 1, 128, 16]
         bs = x_mel.shape
-        print("forward batch_size:", bs)
+        # print("forward batch_size:", bs)
         for layer in self.feature_extractor:
             out = layer(x_mel)
-            print("CNN layer output:", out.shape)
+            # print("CNN layer output:", out.shape)
             x_mel = out
         # x_mel, _ = x_mel.max(dim=-1)
         x_mel = x_mel.transpose(1, 2).reshape(bs[0], bs[2], -1)
-        print("shape of CNN output:", x_mel.shape)
+        # print("shape of CNN output:", x_mel.shape)
         hidden = self.init_hidden(batch_size=bs[0])
         out, hidden = self.rnn_module(x_mel, hidden)  # out: tensor of shape (batch_size, seq_length, hidden_size)
-        print("output shape of lstm:", out.shape)
+        # print("output shape of lstm:", out.shape)
         out = self.sed_module(out[:, -1, :])
-        print("output of full connected nn:", out.shape)
+        # print("output of full connected nn:", out.shape)
         return out, hidden
 
     def init_hidden(self, batch_size):
@@ -283,9 +300,9 @@ class CRNN(nn.Module):
         return hidden
 
 
-def main():
+def train():
     wav2mel = Wave2Mel(sr=22050)
-    sample_list, label_list = read_metafile(w2m=wav2mel)
+    sample_list, label_list = read_slice_file(w2m=wav2mel)
     split_pos = int(len(label_list) * 0.9)
     train_dataset = NEUCOUGHDataset(sample_list[:split_pos], label_list[:split_pos])
     train_loader = DataLoader(dataset=train_dataset, batch_size=16, shuffle=True,
@@ -295,6 +312,7 @@ def main():
     test_loader = DataLoader(dataset=test_dataset, batch_size=16, shuffle=False,
                              pin_memory=True,
                              num_workers=0)
+    print("Data Split into:", len(train_dataset), len(test_dataset))
 
     # pool_size = [8, 8, 2]
     params = {"pool_size": [8, 8, 2], "dropout_rate": 0.0, "batch_size": 32, "nb_cnn2d_filt": 64,
@@ -306,20 +324,30 @@ def main():
     # crnn_model(x)
     loss_f1 = nn.CrossEntropyLoss().to(device)
     # loss_f2 = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.02, betas=(0.5, 0.999))
+    # lr=0.02, Failed, precision and recall always equal to 0.0, F1 equal 0.5
+    # lr=0.002, Failed, precision 0.5, and recall 0.0, F1 equal 0.5
+    # lr=0.002, Success, precision 0.969, and recall 1.0, F1 equal 0.9846
+    # lr=0.0004, Success, precision 0.993, 0.9826989 and 0.987868
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0004, betas=(0.5, 0.999))
 
-    for epoch_id in range(10):
+    Loss_List = []
+    for epoch_id in tqdm(range(20), desc=">>Epoch:"):
         # print()
         model.train()
-        for idx, (x_input, y_label) in tqdm(enumerate(train_loader), desc=">>Epoch[{}]:".format(epoch_id)):
+        for idx, (x_input, y_label) in enumerate(train_loader):
             x_input = x_input.to(device)
             y_label = y_label.to(device)
             optimizer.zero_grad()
             y_pred, _ = model(x_input)
-            loss_v = loss_f1(input=y_label, target=y_pred)
+            # RuntimeError: "host_softmax" not implemented for 'Long'
+            # print(y_label)
+            # print(y_pred)
+            # print(y_label, y_pred)
+            # print(type(y_label), type(y_pred))
+            loss_v = loss_f1(input=y_pred, target=y_label)
+            Loss_List.append(loss_v.item())
             loss_v.backward()
             optimizer.step()
-
         model.eval()
         y_preds = None
         y_labels = None
@@ -344,7 +372,7 @@ def main():
         precision = metrics.precision_score(y_labs, y_preds_label)
         recall = metrics.recall_score(y_labs, y_preds_label)
         acc = metrics.accuracy_score(y_labs, y_preds_label)
-        print(precision, recall, acc)
+        print("\nTrain Dataset Result:", precision, recall, acc)
 
         y_preds = None
         y_labels = None
@@ -362,15 +390,59 @@ def main():
                 y_preds = y_pred
             else:
                 y_preds = torch.concat((y_preds, y_pred), dim=0)
-        from sklearn import metrics
         y_labs = y_labels.data.cpu().numpy()
         y_preds = y_preds.data.cpu().numpy()
         y_preds_label = y_preds.argmax(-1)
         precision = metrics.precision_score(y_labs, y_preds_label)
         recall = metrics.recall_score(y_labs, y_preds_label)
         acc = metrics.accuracy_score(y_labs, y_preds_label)
-        print(precision, recall, acc)
+        print("Test Dataset Result:", precision, recall, acc)
+        if precision > 0.96 and recall > 0.96:
+            save_dir = "./runs/sed_crnn/" + time.strftime("%Y%m%d%H%M", time.localtime()) + "/"
+            if not os.path.exists(save_dir):
+                os.makedirs(save_dir, exist_ok=True)
+            torch.save(model.state_dict(), save_dir + "epoch_{}_sedmodel.pth".format(epoch_id))
+            torch.save(optimizer.state_dict(), save_dir + "epoch_{}_optimizer.pth".format(epoch_id))
+
+    plt.figure(0)
+    plt.plot(range(len(Loss_List)), Loss_List, c='black')
+    plt.show()
+
+
+def detecting(sample_path):
+
+    # pool_size = [8, 8, 2]
+    params = {"pool_size": [8, 8, 2], "dropout_rate": 0.0, "batch_size": 32, "nb_cnn2d_filt": 64,
+              "rnn_size": [128, 128], "fnn_size": [256, 128, 32]}
+    device = torch.device("cuda")
+    model = CRNN(params=params).to(device)
+    model.load_state_dict(torch.load("./runs/sed_crnn/{}/epoch_{}_sedmodel.pth".format("202411152222", 19)))
+    model.eval()
+    print(model)
+
+    # sample_list, label_list = read_fullwave_file()
+    lab2name = {0: "non-cough", 1: "cough"}
+    fixed_length = 8191  # mel 16
+    wav2mel = Wave2Mel(sr=22050)
+    wav_input, sr = librosa.load(sample_path)
+    N = len(wav_input)
+    st = 0
+    st_list = []
+    yhat_list = []
+    while st < N:
+        sample = wav_input[st:st+fixed_length]
+        x_mel = wav2mel(torch.from_numpy(sample).to(torch.float32))
+        x_mel = x_mel.unsqueeze(0).to(device)
+        print("start:{}, x_mel.shape:{}".format(st, x_mel.shape))
+        with torch.no_grad():
+            y_pred, _ = model(x_mel)
+            y_hat = torch.argmax(y_pred, dim=-1)
+            st_list.append(st)
+            yhat_list.append(y_hat)
+        st += fixed_length
+    print(yhat_list)
 
 
 if __name__ == '__main__':
-    main()
+    # train()
+    detecting("F:/DATAS/NEUCOUGHDATA_FULL/20240921104740_audiodata_元音字母a.wav")
