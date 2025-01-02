@@ -1,4 +1,16 @@
 [English](README.md)|[简体中文](README_cn.md)
+
+- ./commandcode.py：采用FFMPEG切分白噪声数据。
+- ./bilicough_segment.ipynb: 
+  - 采用ffmpeg处理咳嗽声音视频。
+  - 根据ass数据创建csv文件。
+  - 根据规则简化ass标注。
+  - 根据标注统计cough数据的长度。
+  - 根据csv数据截取数据及其标注（有效、无效片段二分类标注）。
+  - -------=====--------
+  - 根据同样规则获取切分后的噪声数据填充二分类数据集。
+
+
 # 声音分类
 This repository contains the implementation (in PyTorch) of some models for Sound/Audio Classification.
 
