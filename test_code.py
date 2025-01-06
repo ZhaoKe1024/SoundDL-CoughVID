@@ -81,6 +81,9 @@ class TDNN(nn.Module):
         )
 
     def forward(self, x):
+        # tdnn_out: [batch_size, tdnn_out_channels, time_length_out]
+        # 这里可以对时间维度做 pooling 或者直接取最后一帧，也可 global average pooling
+        # 例如，这里做一个 global average pooling:
         return self.tdnn(x).squeeze()  # .max(dim=-1)
 
 
@@ -100,6 +103,8 @@ class CNN(nn.Module):
         )
 
     def forward(self, x):
+        # cnn_out: [batch_size, cnn_num_filters*2, freq_out, time_out]
+        # 同理，这里也做一个 global average pooling
         return self.cnn(x).squeeze()  # .max(dim=-1, ).max(dim=-1)
 
 
@@ -108,7 +113,7 @@ class AudioClassifier(nn.Module):
         super(AudioClassifier, self).__init__()
 
         # 时域特征提取模块 (TDNN)
-        self.tdnn_module = TDNN()
+        self.tdnn_module = TDNN(window=1024, overlap=768)
 
         # 频域特征提取模块 (CNN)
         self.cnn_module = CNN()
@@ -145,42 +150,29 @@ class AudioClassifier(nn.Module):
         x_freq: [batch_size, 1, freq_bins, time_frames]
         """
         # 1) 时域特征提取
-        tdnn_out = self.tdnn_module(x_time)
-        # tdnn_out: [batch_size, tdnn_out_channels, time_length_out]
-        # 这里可以对时间维度做 pooling 或者直接取最后一帧，也可 global average pooling
-        # 例如，这里做一个 global average pooling:
-        tdnn_out = torch.mean(tdnn_out, dim=2)  # [batch_size, tdnn_out_channels]
+        tdnn_out = self.tdnn_module(x_time.unsqueeze(1))
 
         # 2) 频域特征提取
-        cnn_out = self.cnn_module(x_freq)
-        # cnn_out: [batch_size, cnn_num_filters*2, freq_out, time_out]
-        # 同理，这里也做一个 global average pooling
-        cnn_out = torch.mean(cnn_out, dim=[2, 3])  # [batch_size, cnn_num_filters*2]
+        cnn_out = self.cnn_module(x_freq.unsqueeze(1))
 
         # 3) 将两者融合 (拼接)
         fused = torch.cat((tdnn_out, cnn_out), dim=1)  # [batch_size, tdnn_out_channels + cnn_num_filters*2]
+        print("time domain:{}, freq domain:{}, fused feature:{}.".format(tdnn_out.shape, cnn_out.shape, fused.shape))
 
         # 4) 融合后映射到隐向量 (latent vector)
         fused_hidden = F.relu(self.fusion_fc(fused))  # [batch_size, fused_hidden_dim]
 
         # 5) 得到分类结果
         logits = self.classifier(fused_hidden)  # [batch_size, num_classes]
-
+        print("hidden vector:{}, out result:{}.".format(fused_hidden.shape, logits.shape))
         return logits
 
 
 def model_design_task1():
-    tdnn_module = TDNN(window=1024, overlap=768)
-    cnn_module = CNN()
     cls_module = AudioClassifier()
-
     x_wav = torch.rand(size=(32, 22050))
     x_mel = torch.rand(size=(32, 128, 44))
-    tfm = tdnn_module(x_wav.unsqueeze(1))
-    ffm = cnn_module(x_mel.unsqueeze(1))
-    fm = torch.concat([tfm, ffm], dim=-1)
-    print("feature map:", fm.shape)
-
+    print(cls_module(x_wav, x_mel))
 
 
 if __name__ == '__main__':
