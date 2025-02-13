@@ -10,6 +10,11 @@
   - -------=====--------
   - 根据同样规则获取切分后的噪声数据填充二分类数据集。
 
+# VAD
+通过简单的TDNN+CNN+MLP进行声音二分类：chapter2_VADmodel.py。
+
+采用的数据集就bilicough
+
 
 # 声音分类
 This repository contains the implementation (in PyTorch) of some models for Sound/Audio Classification.
