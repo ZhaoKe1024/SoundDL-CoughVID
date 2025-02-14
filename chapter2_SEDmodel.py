@@ -2,7 +2,7 @@
 # -*- coding: utf_8 -*-
 # @Time : 2024/11/13 20:57
 # @Author: ZhaoKe
-# @File : SED_CRNN.py
+# @File : chapter2_SEDmodel.py
 # @Software: PyCharm
 
 
