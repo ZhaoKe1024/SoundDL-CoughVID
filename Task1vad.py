@@ -154,8 +154,6 @@ def load_bilinoise_dataset():
         print(len(item))
 
 
-
-
 if __name__ == '__main__':
     sample_list, label_list = load_bilicough_dataset()
     length_list = []
