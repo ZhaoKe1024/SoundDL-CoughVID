@@ -2,7 +2,7 @@
 # -*- coding: utf_8 -*-
 # @Time : 2025/1/2 20:29
 # @Author: ZhaoKe
-# @File : Task1vad.py
+# @File : Task1vad_bilicough.py
 # @Software: PyCharm
 import os
 import numpy as np
