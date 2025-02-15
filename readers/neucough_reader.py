@@ -62,7 +62,7 @@ class NEUCoughReader(object):
         self.data_length = None
         self.desc = ""
 
-    def get_sample_label_list(self, event="cough"):
+    def get_sample_label_list(self, mode="cough"):
         """
 
         :param event:[cough: only cough event, all: all sound event]
@@ -71,7 +71,7 @@ class NEUCoughReader(object):
             lael_list: list of label indicating the cough(2) and speech(9), silence(7).
         """
         sample_list, label_list = [], []
-        if event == "cough":
+        if mode == "cough":
             fin = open(self.metapath, 'r')
             fin.readline()
             line = fin.readline()
@@ -101,10 +101,10 @@ class NEUCoughReader(object):
                 line = fin.readline()
                 pbar.update(1)
             fin.close()
-        elif event == "all":
+        elif mode == "all":
             pass
         else:
-            raise ValueError("Unknown param event: {} !!!!".format(event))
+            raise ValueError("Unknown param event: {} !!!!".format(mode))
         return sample_list, label_list
 
     def __split(self, w_data):
