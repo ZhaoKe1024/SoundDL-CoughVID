@@ -3,14 +3,17 @@
 # @Time : 2024-01-24 18:17
 import os
 import numpy as np
-from tqdm import tqdm
 import random
+import librosa
 from torch.utils.data import Dataset
-from readers.audio import AudioSegment, wav_padding
+from tqdm import tqdm
+
+# from readers.audio import AudioSegment, wav_padding
 # from readers.featurizer import wav_slice_padding
 
 
 def CoughVID_Class(filename="./datasets/waveinfo_labedfine_forcls.csv", isdemo=False):
+    print(os.listdir("./datasets"))
     train_x, train_y = [], []
     test_x, test_y = [], []
     # label_list = []
@@ -108,7 +111,7 @@ class CoughVID_Dataset(Dataset):
         if len(tmpseg) > 48000:
             # start_time = random.randint(0, len(tmpseg) - 48000)
             start_time = 0
-            tmpseg = tmpseg[start_time:start_time+48000]
+            tmpseg = tmpseg[start_time:start_time + 48000]
         if len(tmpseg) < 48000:
             tmpseg = wav_padding(tmpseg)
         assert len(tmpseg) == 48000, "Error Length"
@@ -125,7 +128,87 @@ class CoughVID_Dataset(Dataset):
         # return audioseg.samples
 
 
+def min2sec(t: str):
+    parts = t.split(':')
+    return int(parts[1]) * 60 + float(parts[2])
+
+
+class CoughVIDReader(object):
+    def __init__(self):
+        # , ROOT="F:/DATAS/NEUCOUGHDATA_COUGHSINGLE/"
+        self.ROOT = "F:/DATAS/COUGHVID-public_dataset_v3/coughvid_20211012_fine/"
+        self.metapath = "F:/DATAS/COUGHVID-public_dataset_v3/waveinfo_fewtoml_split.csv"
+        # metadf = pd.read_csv(ROOT + "bilicough_metainfo.csv", delimiter=',', header=0,
+        #                      index_col=None, encoding="ansi")
+        self.m2l = {"healthy": 0, "COVID-19": 1}
+        self.sr = None
+        self.data_length = None
+        self.desc = ""
+
+    def get_sample_label_list(self):
+        """
+        :param event:
+        :return:
+            sample_list: sample of cough
+            label_list: cough(2)
+        """
+        sample_list, label_list = [], []
+        fin = open(self.metapath, 'r')
+        fin.readline()
+        line = fin.readline()
+        w_data, sr = None, None
+        pbar = tqdm(total=2850)
+        while line:
+            parts = line.split(',')
+            fname = parts[1]
+            w_data, sr = librosa.load(path=self.ROOT + fname+".wav")
+            if self.sr is None:
+                self.sr = sr
+                self.data_length = sr
+            segs = None
+            if len(w_data) > self.data_length:
+                segs = self.__split(w_data)
+            elif len(w_data) < self.data_length:
+                segs = self.__padding(w_data)
+            else:
+                segs = [w_data]
+            sample_list.extend(segs)
+            label_list.extend([2]*len(segs))
+            line = fin.readline()
+            pbar.update(1)
+        fin.close()
+        return sample_list, label_list
+
+    def __split(self, w_data):
+        L = w_data.shape[0]
+        overlap = int(self.data_length // 6)
+        if L - self.data_length < overlap:
+            return [w_data]
+        else:
+            segs = []
+            st = 0
+            while st + self.data_length < L:
+                segs.append(w_data[st:st + self.data_length])
+                st = st + self.data_length - overlap
+            if st + self.data_length - L < overlap:
+                segs.extend(self.__padding(w_data[st:]))
+            return segs
+
+    def __padding(self, w_data, usenoise=False):
+        new_signal = None
+        if usenoise:
+            pass
+        else:
+            new_signal = np.zeros(self.data_length)
+            # resi = self.data_length - w_data.shape[0]
+            # print("resi:", resi)
+            new_signal[:w_data.shape[0]] = w_data
+            new_signal[-w_data.shape[0]:] = w_data[::-1]
+        return [new_signal]
+
+
 if __name__ == '__main__':
+    cvr = CoughVIDReader()
     # # ext_list()
     # # stat_coughvid()
     # label_list = read_labels_from_csv()
@@ -133,7 +216,7 @@ if __name__ == '__main__':
     # from torch.utils.data import DataLoader
     # from ackit.data_utils.collate_fn import collate_fn
     # from ackit.data_utils.featurizer import Wave2Mel
-    plist, llist = CoughVID_Class()
+    # plist, llist = CoughVID_Class()
     # cough_dataset = CoughVID_Dataset(plist, llist)
     # w2m = Wave2Mel(sr=16000, n_mels=80)
     # train_loader = DataLoader(cough_dataset, batch_size=32, shuffle=False,

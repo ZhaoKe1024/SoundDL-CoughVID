@@ -3,6 +3,11 @@
 # SoundDL-CoughVID
  A study repository for coughvid
 
+# BiliCough
+
+
+# NEU
+
 
 # ipynb:
 - coughvid_clean_split：把筛选后的音频切分为多段，得到约2850条，并将其保存csv meta文件，写入wav音频。采样率22050，每条长度32306，也即1.465秒。
