@@ -7,20 +7,22 @@
 import os
 import time
 import random
+import numpy as np
+import matplotlib.pyplot as plt
+from tqdm import tqdm
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torchaudio
 from torch.utils.data import Dataset, DataLoader
-
-from modules.extractors import TDNN_Extractor
 from readers.bilicough_reader import BiliCoughReader
 from readers.neucough_reader import NEUCoughReader
 from readers.coughvid_reader import CoughVIDReader
-# from readers.featurizer import Wave2Mel
+from readers.noise_reader import load_bilinoise_dataset
+from models.tdnncnn import WSFNN
 
 
 def get_combined_data():
+    print("Build the Dataset consisting of BiliCough, NeuCough, CoughVID19.")
     bcr = BiliCoughReader()
     ncr = NEUCoughReader()
     cvr = CoughVIDReader()
@@ -28,16 +30,26 @@ def get_combined_data():
     tmp_sl, tmp_ll = bcr.get_sample_label_list(mode="sed")
     sample_list.extend(tmp_sl)
     label_list.extend(tmp_ll)
-    print("bilicough:", len(label_list))
+    print("bilicough:", len(label_list), bcr.data_length)
     tmp_sl, tmp_ll = ncr.get_sample_label_list(mode="cough")
     sample_list.extend(tmp_sl)
     label_list.extend(tmp_ll)
-    print("bilicough+neucough:", len(label_list))
+    print("bilicough+neucough:", len(label_list), ncr.data_length)
     tmp_sl, tmp_ll = cvr.get_sample_label_list()
     sample_list.extend(tmp_sl)
     label_list.extend(tmp_ll)
-    print("bilicough+neucough+coughvid:", len(label_list))
-    return sample_list, label_list
+    print("bilicough+neucough+coughvid:", len(label_list), cvr.data_length)
+    # shuffle
+    tmplist = list(zip(sample_list, label_list))
+    random.shuffle(tmplist)
+    sample_list, label_list = zip(*tmplist)
+
+    noise_list, _ = load_bilinoise_dataset(NOISE_ROOT="G:/DATAS-Medical/BILINOISE/", noise_length=bcr.data_length,
+                                           number=100)
+    print("Loader noise data.")
+    print("length of data:", len(sample_list), len(label_list), len(noise_list))
+    print("data length:", bcr.data_length)
+    return sample_list, label_list, noise_list
 
 
 class BiliCoughDataset(Dataset):
@@ -58,26 +70,24 @@ class BiliCoughDataset(Dataset):
 
 
 class SEDModel(nn.Module):
-    def __init__(self, n_mels=64, class_num=2):
+    def __init__(self, class_num=10):
         super().__init__()
-        # Mel特征提取
-        self.mel_extractor = torchaudio.transforms.MelSpectrogram(sample_rate=22050, n_fft=2048, hop_length=512, n_mels=n_mels)
-        self.wave_conv = TDNN_Extractor()
+        self.model = WSFNN(class_num=class_num)
 
-    def forward(self, x_wav):
-        return self.wave_conv(x_wav)
+    def forward(self, x):
+        return self.model(x=x)
 
 
 class Trainer2SED(object):
     def __init__(self):
         self.configs = {"batch_size": 32, "lr": 0.001, "epoch_num": 30}
-        self.save_dir = "./runs/c2vadmodel/"
+        self.save_dir = "./runs/c2sedmodel/"
         if not os.path.exists(self.save_dir):
             os.makedirs(self.save_dir, exist_ok=True)
         self.run_save_dir = self.save_dir + time.strftime("%Y%m%d%H%M", time.localtime()) + '/'
         self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         self.save_setting_str = "Model:{}, optimizer:{}, loss function:{}\n".format(
-            "VADModel(wav TDNN + mel CNN + pool + mlp)", "Adam(lr={})".format(self.configs["lr"]),
+            "SEDModel(wav TDNN + mel CNN + pool + mlp)", "Adam(lr={})".format(self.configs["lr"]),
             "nn.CrossEntropyLoss")
         self.save_setting_str += "dataset:{}, batch_size:{}, noise_p:{}\n".format("BiliCough+BiliNoise",
                                                                                   self.configs["batch_size"], "0.333")
@@ -88,6 +98,105 @@ class Trainer2SED(object):
         self.criterion = nn.CrossEntropyLoss().to(self.device)
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.configs["lr"])
 
+    def __build_dataset(self):
+        sample_list, label_list, noise_list = get_combined_data()
+        trte_rate = int(len(sample_list) * 0.9)
+
+        self.train_loader = DataLoader(
+            BiliCoughDataset(audioseg=sample_list[:trte_rate], labellist=label_list[:trte_rate], noises=noise_list),
+            batch_size=self.configs["batch_size"], shuffle=True)
+        self.valid_loader = DataLoader(
+            BiliCoughDataset(audioseg=sample_list[trte_rate:], labellist=label_list[trte_rate:], noises=noise_list),
+            batch_size=self.configs["batch_size"], shuffle=False)
+
+    def train(self):
+        self.__build_dataset()
+        print("Build Model...")
+        self.__build_model()
+        print("Build Dataset...")
+        flag = False
+        Loss_Epoch_List = []
+        print("Start Training...")
+        for epoch_id in range(self.configs["epoch_num"]):
+            self.model.train()
+            Loss_Batch_List = []
+            for batch_id, (x_wav, y_lab) in tqdm(enumerate(self.train_loader),
+                                                 desc="Epoch:{} Training ".format(epoch_id)):
+                self.optimizer.zero_grad()
+                x_wav, y_lab = x_wav.to(self.device).unsqueeze(1).to(torch.float32), y_lab.to(
+                    self.device)  # .to(torch.float32)
+                if not flag:
+                    print("shape of x y:", x_wav.shape, y_lab.shape)
+                y_pred = self.model(x=x_wav)
+                if not flag:
+                    print("shape of pred:", y_pred.shape)
+                loss_v = self.criterion(input=y_pred, target=y_lab)
+                if not flag:
+                    print("shape of loss_v:", loss_v.shape)
+                    flag = True
+                loss_v.backward()
+                self.optimizer.step()
+                Loss_Batch_List.append(loss_v.mean().item())
+            Loss_Epoch_List.append(np.array(Loss_Batch_List).mean())
+        self.model.eval()
+        pre_list = []
+        rec_list = []
+        acc_list = []
+        from sklearn import metrics
+        for batch_id, (x_wav, y_lab) in tqdm(enumerate(self.valid_loader), desc="Testing..."):
+            with torch.no_grad():
+                x_wav = x_wav.to(self.device).unsqueeze(1).to(torch.float32)
+                y_pred = self.model(x=x_wav)
+                y_pred = np.argmax(y_pred.data.cpu().numpy(), axis=1)
+
+                precision = metrics.precision_score(y_true=y_lab, y_pred=y_pred, average="micro")
+                recall = metrics.recall_score(y_true=y_lab, y_pred=y_pred, average="micro")
+                acc = metrics.accuracy_score(y_true=y_lab, y_pred=y_pred)
+                pre_list.append(precision)
+                rec_list.append(recall)
+                acc_list.append(acc)
+        print("precision:")
+        print(pre_list)
+        print("recall:")
+        print(rec_list)
+        print("accuracy:")
+        print(acc_list)
+        if not os.path.exists(self.run_save_dir):
+            os.makedirs(self.run_save_dir, exist_ok=True)
+        plt.figure(0)
+        plt.plot(list(range(len(Loss_Epoch_List))), np.array(Loss_Epoch_List), c="black")
+        plt.savefig(self.run_save_dir + "vad_meanloss_epoch.png", dpi=300, format="png")
+        plt.close(0)
+
+        settingf = open(self.run_save_dir + "train_settings.txt", 'w')
+        settingf.write(self.save_setting_str)
+        settingf.write("loss:[" + ",".join([str(it) for it in Loss_Epoch_List]) + ']\n')
+        settingf.write('precision:{}['.format(np.mean(pre_list)) + ",".join([str(it) for it in pre_list]) + ']\n')
+        settingf.write('recall:{}['.format(np.mean(rec_list)) + ",".join([str(it) for it in rec_list]) + ']\n')
+        settingf.write('accuracy:{}['.format(np.mean(acc_list)) + ",".join([str(it) for it in acc_list]) + ']\n')
+        # plt.show()
+        settingf.close()
+
+        self.__save_model()
+
+    def __save_model(self):
+        torch.save(self.model.state_dict(),
+                   self.run_save_dir + "sed_model_epoch{}.pth".format(self.configs["epoch_num"]))
+        torch.save(self.optimizer.state_dict(),
+                   self.run_save_dir + "sed_optimizer_epoch{}.pth".format(self.configs["epoch_num"]))
+        print("models were saved.")
+
+    def load_model(self):
+        vad_model = SEDModel()
+        vad_model.load_state_dict(torch.load(self.save_dir + "202502141500/vad_model_epoch30.pth"))
+        vad_model.eval()
+        return vad_model
+
+    def detection(self):
+        vad_model = self.load_model()
+        import librosa
+        WAVE_ROOT = "G:/DATAS-Medical/BILIBILICOUGH/"
+        testwav, sr = librosa.load(WAVE_ROOT + "bilicough_009.wav")
 
 
 if __name__ == '__main__':

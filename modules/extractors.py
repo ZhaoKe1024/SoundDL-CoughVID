@@ -8,13 +8,13 @@ import torch.nn as nn
 
 
 class TDNN_Extractor(nn.Module):
-    def __init__(self, num_class=2, input_size=128, hidden_size=512, channels=1024, embd_dim=32):
+    def __init__(self, input_size=128, hidden_size=512, channels=1024, win_size=1024, hop_length=488, overlap=512):
         super(TDNN_Extractor, self).__init__()
-        self.emb_size = embd_dim
-        kernel_size, stride, padding = 1024, 488, 512
-        self.wav2mel = nn.Conv1d(in_channels=1, out_channels=128, kernel_size=kernel_size, stride=stride,
-                                 padding=padding, bias=False)
-        length = (22050 + 2 * padding - kernel_size) // stride + 1  # 87, who to 46?
+        # kernel_size, stride, padding = 1024, 488, 512
+        print("The first Layer of the TDNN: kernel_size:{}, stride:{}, padding:{}".format(win_size, hop_length, overlap))
+        self.wav2mel = nn.Conv1d(in_channels=1, out_channels=128, kernel_size=win_size, stride=hop_length,
+                                 padding=overlap, bias=False)
+        length = (22050 + 2 * overlap - win_size) // hop_length + 1  # 87, who to 46?
         self.layer_norm = nn.LayerNorm(length)
         # self.wav2mel = nn.Conv1d(in_channels=1, out_channels=128, kernel_size=1024, stride=512, padding=1024 // 2, bias=False)
         self.td_layer1 = nn.Conv1d(in_channels=input_size, out_channels=hidden_size, dilation=1, kernel_size=5,
@@ -36,7 +36,7 @@ class TDNN_Extractor(nn.Module):
         self.td_layer5 = nn.Conv1d(in_channels=hidden_size, out_channels=channels, dilation=1, kernel_size=1,
                                    stride=1, groups=hidden_size)  # IW+1
         self.leakyrelu = nn.LeakyReLU(0.2, inplace=True)
-
+        print("Build TDNN Extractor with 6 Conv1d Layers.")
         # self.pooling = TemporalAveragePooling()
         # self.bn5 = nn.BatchNorm1d(channels)
         # self.linear = nn.Linear(channels, embd_dim)
