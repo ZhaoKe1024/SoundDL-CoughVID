@@ -2,6 +2,7 @@
 # @Author : ZhaoKe
 # @Time : 2025-02-13 16:20
 import os
+from copy import copy
 import time
 import random
 import numpy as np
@@ -14,9 +15,10 @@ import torch.nn as nn
 import torchaudio
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
-
+# import sys
+# sys.path.append(r'C:/Program Files (zk)/PythonFiles/AClassification/SoundDL-CoughVID')
+# sys.path.append(r'C:/Program Files (zk)/PythonFiles/AClassification/SoundDL-CoughVID/modules')
 from modules.extractors import TDNN_Extractor
-
 WAVE_ROOT = "G:/DATAS-Medical/BILIBILICOUGH/"
 NOISE_ROOT = "G:/DATAS-Medical/BILINOISE/"
 name2label = {"breathe": 0, "cough": 2, "clearthroat": 1, "exhale": 3, "hum": 4, "inhale": 5, "noise": 6, "silence": 7,
@@ -452,10 +454,84 @@ class Trainer2VAD(object):
 
     def detection(self):
         vad_model = self.load_model()
-        testwav, sr = librosa.load(WAVE_ROOT + "bilicough_009.wav")
+        # WAVE_ROOT = "G:/DATAS-Medical/BILIBILICOUGH/"
+        testwav, sr = librosa.load("F:/DATAS/NEUCOUGHDATA_FULL/20240921133332_audiodata_元音字母a.wav")
+        # testwav, sr = librosa.load(WAVE_ROOT + "bilicough_009.wav")
+        N = len(testwav)
+        seg_list = []
+        st, step, overlap = 0, 22050, 22050 // 3
+        while st + step <= N:
+            seg_list.append(testwav[st:st + step])
+            st = st + step - overlap
+        tmp = testwav[st:]
+        new_tmp = np.zeros(step)
+        st = (step - len(tmp)) // 2
+        new_tmp[st:st + len(tmp)] = tmp
+        seg_list.append(new_tmp)
+        print(len(seg_list))
+        seg_list = [torch.from_numpy(it) for it in seg_list]
+
+        batch_size = 32
+        x_batchs = []
+        ind = 0
+        while ind + batch_size < len(seg_list):
+            x_batchs.append(torch.stack(seg_list[ind:ind + batch_size], dim=0))
+            ind += batch_size
+        x_batchs.append(torch.stack(seg_list[ind:], dim=0))
+        print("batch num:{}, batch shape:{}".format(len(x_batchs), x_batchs[0].shape))
+
+        pred_list = None
+        for batch_id, x_wav in enumerate(x_batchs):
+            with torch.no_grad():
+                y_pred = vad_model(x=x_wav.to(self.device).unsqueeze(1).to(torch.float32))
+                if pred_list is None:
+                    pred_list = y_pred
+                else:
+                    pred_list = torch.concat((pred_list, y_pred), dim=0)
+
+        pred_list = np.argmax(pred_list.data.cpu().numpy(), axis=1)
+
+        print("data_length:", pred_list)
+        new_pred = copy(pred_list)
+        flag = False
+        for i in range(len(pred_list)):
+            if pred_list[i] > 0:
+                if not flag:
+                    new_pred[i - 1:i + 1] = 1
+                    flag = True
+                else:
+                    continue
+            else:
+                if flag:
+                    new_pred[i:i + 1] = 1
+                    # new_pred[i+1] = 0
+                    flag = False
+                else:
+                    continue
+        for i in range(len(pred_list) - 1):
+            new_pred[i] = new_pred[i + 1]
+        new_pred[-1] = 0
+        maxv = max(testwav)
+        new_pred = new_pred * maxv
+
+        pred_list = pred_list * maxv
+        # pred_list
+        plt.figure(1)
+        sig_len = N // len(pred_list) + 1
+        curve = []
+        for it in new_pred:
+            curve.extend([it] * (sig_len))
+
+        print(N, len(curve))
+
+        plt.plot(range(N), testwav)
+        plt.plot(range(len(curve)), curve, c="orange")
+
+        plt.savefig(self.save_dir + "202502141500/vad_detection_neu20240921133332.png", dpi=300, format="png")
 
 
 if __name__ == '__main__':
     trainer = Trainer2VAD()
-    trainer.train()
+    trainer.detection()
+    # trainer.train()
     # print(tdnn(x).shape)
