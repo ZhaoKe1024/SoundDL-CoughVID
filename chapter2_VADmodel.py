@@ -63,7 +63,7 @@ class VADModel(nn.Module):
         #     nn.BatchNorm1d(32),
         #     nn.SiLU(),
         # )
-        self.wave_conv = TDNN_Extractor()
+        self.wave_conv = TDNN_Extractor(win_size=1024, hop_length=488, overlap=512)
 
         # Mel分支（频域特征）
         self.mel_conv = nn.Sequential(

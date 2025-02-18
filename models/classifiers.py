@@ -4,6 +4,7 @@
 # @Author: ZhaoKe
 # @File : classifiers.py
 # @Software: PyCharm
+from collections import OrderedDict
 import torch.nn as nn
 from modules.attentions import DotAttention, SoftAttention
 
@@ -101,13 +102,14 @@ class LSTM_Attn_Classifier(nn.Module):
 
     def forward(self, x):
         lstm_out, (hidden, _) = self.lstm(x.transpose(1, 2))
-
+        attn_output = None
+        attn_weights = None
         if self.attn_type == 'dot':
             attn_output = self.attention(lstm_out, hidden)
-            attn_weights = self.attention._get_weights(lstm_out, hidden)
+            attn_weights = self.attention.get_weights(values=lstm_out, query=hidden)
         elif self.attn_type == 'soft':
             attn_output = self.attention(lstm_out)
-            attn_weights = self.attention._get_weights(lstm_out)
+            attn_weights = self.attention.get_weights(lstm_out)
 
         out = self.classifier(attn_output)
         if self.return_attn_weights:
@@ -122,10 +124,29 @@ def test_lstm():
     # hidden_size:
     # num_layer: 层数
     x = torch.randn(64, 64, 128)  # (bs, length, dim)
-    lstm = LSTMClassifier(input_size=128, hidden_size=128, num_layers=2, num_classes=2)
+    lstm = LSTM_Classifier(inp_size=128, hidden_size=128, n_classes=2)
     print(lstm(x))
 
 
+class MLP(nn.Module):
+    def __init__(self, hidden_size, last_activation=True):
+        super(MLP, self).__init__()
+        q = []
+        for i in range(len(hidden_size) - 1):
+            in_dim = hidden_size[i]
+            out_dim = hidden_size[i + 1]
+            q.append(("Linear_%d" % i, nn.Linear(in_dim, out_dim)))
+            if (i < len(hidden_size) - 2) or ((i == len(hidden_size) - 2) and last_activation):
+                q.append(("BatchNorm_%d" % i, nn.BatchNorm1d(out_dim)))
+                q.append(("ReLU_%d" % i, nn.ReLU(inplace=True)))
+        self.mlp = nn.Sequential(OrderedDict(q))
+
+    def forward(self, x):
+        return self.mlp(x)
+
+
 if __name__ == '__main__':
-    main()
+    # main()
     # test_lstm()
+    mlp = MLP(hidden_size=[64, 32, 8, 1])
+    print(mlp)

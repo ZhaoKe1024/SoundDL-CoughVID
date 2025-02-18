@@ -11,7 +11,8 @@ from modules.extractors import TDNN_Extractor
 
 
 class WSFNN(nn.Module):
-    def __init__(self, n_mels=64, class_num=2):
+    # Waveform Spectrogram Fused Neural Network
+    def __init__(self, n_mels=64, class_num=2, latent_dim=1024):
         super().__init__()
         # Mel特征提取
         self.mel_extractor = torchaudio.transforms.MelSpectrogram(
@@ -27,7 +28,7 @@ class WSFNN(nn.Module):
         #     nn.BatchNorm1d(32),
         #     nn.SiLU(),
         # )
-        self.wave_conv = TDNN_Extractor(win_size=1024, hop_length=488, overlap=512)
+        self.wave_conv = TDNN_Extractor(win_size=1024, hop_length=488, overlap=512, channels=latent_dim)
 
         # Mel分支（频域特征）
         self.mel_conv = nn.Sequential(
@@ -52,6 +53,7 @@ class WSFNN(nn.Module):
         # )
         print("Pooling after Fusioning the TDNN and CNN.")
         self.pool = nn.MaxPool1d(kernel_size=4)
+
         self.classifier = nn.Sequential(
             nn.Linear(512, 64),
             nn.SiLU(),
@@ -61,13 +63,13 @@ class WSFNN(nn.Module):
         )
         print("Build 3-Layer MLP as Classifier for {}-class.".format(class_num))
 
-    def forward(self, x):
-        # x: (B, 1, 30000) 波形输入
+    def forward(self, x, latent=False):
+        # x: (B, 1, 22050) 波形输入
         # 波形分支
         wave_feat = self.wave_conv(x)  # (B, 32, 7500)
         # print("wave_feat shape:", wave_feat.shape)
         wave_feat = wave_feat.permute(0, 2, 1)  # (B, 7500, 32)
-        # print("wav feat shape:", wave_feat.shape)
+        print("wav feat shape:", wave_feat.shape)  # wav feat shape: torch.Size([32, 32, 1024])
 
         # 提取Mel特征
         mel = self.mel_extractor(x)  # .unsqueeze(1)  # (B, 1, n_mels, T)
@@ -78,11 +80,11 @@ class WSFNN(nn.Module):
         mel_feat = self.mel_conv(mel)  # (B, 32, 64, 16)
         # print("mel feat shape:", mel_feat.shape)
         mel_feat = mel_feat.permute(0, 3, 1, 2).flatten(2)  # (B, 1024, 32)
-        # print("mel feat shape:", mel_feat.shape)
+        print("mel feat shape:", mel_feat.shape)  # mel feat shape: torch.Size([32, 32, 1024])
 
         # 特征拼接
         combined = torch.cat([wave_feat, mel_feat], dim=-1)  # (B, 7500+1024, 32)
-        # print("feat shape:", combined.shape)
+        print("feat shape:", combined.shape)  # feat shape: torch.Size([32, 32, 2048])
 
         # # Transformer编码
         # src_key_padding_mask = (combined.mean(-1) == 0)  # 动态掩码
@@ -91,8 +93,19 @@ class WSFNN(nn.Module):
         #     src_key_padding_mask=src_key_padding_mask
         # )  # (T, B, d_model)
         # print(output.shape)
+
         # 分类
         output = self.pool(combined.mean(dim=1))
-        # print(output.shape)
+        # print(output.shape)  # torch.Size([32, 512])
         logits = self.classifier(output)  # (B, 1)
-        return logits  # .squeeze(-1)
+        if latent:
+            return logits, combined
+        else:
+            return logits  # .squeeze(-1)
+
+
+if __name__ == '__main__':
+    x = torch.rand(size=(32, 1, 22050))
+    m = WSFNN()
+    logits, lv = m(x, latent=True)
+    print(logits.shape, lv.shape)
