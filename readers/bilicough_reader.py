@@ -23,8 +23,12 @@ class BiliCoughReader(object):
         #                      index_col=None, encoding="ansi")
         self.sr = None
         self.data_length = None
+
+        # 该字典是bilicough数据集用的，原理是按照字母排序，不能修改！
         # sed_name2label = {"breathe": 0, "cough": 2, "clearthroat": 1, "exhale": 3, "hum": 4, "inhale": 5, "noise": 6, "silence": 7,
         #               "sniff": 8, "speech": 9, "vomit": 10, "whooping": 11}
+
+        # 这个字典是去掉silence和noise之后的上述字典，分类任务用的，也不能修改！
         self.sed_label2name = {0: "breathe", 1: "clearthroat", 2: "cough", 3: "exhale", 4: "hum", 5: "inhale",
                                6: "sniff", 7: "speech", 8: "vomit", 9: "whooping"}
         # self.vad_name2label = {"silence or noise": 0, "sound activity": 1}
@@ -250,3 +254,7 @@ class BiliCoughReader(object):
         self.sr = sr_list[0]
         self.data_length = data_length
         return sample_list, label_list
+
+    def get_multi_event_batches(self):
+        # 还没给疾病标签标完呢！
+        pass
