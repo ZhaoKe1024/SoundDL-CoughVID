@@ -13,26 +13,68 @@
 # VAD
 通过简单的TDNN+CNN+MLP进行声音二分类：chapter2_VADmodel.py。
 
-采用的数据集就bilicough
+# CoughVID Reader:
+- ./readers/coughvid_reader.py
+- ./readers/noise_reader.py: for data augmentation.
 
+```text
+cvr = CoughVIDReader()
+sample_list, label_list = cvr.get_sample_label_list()
+print("coughvid:", len(label_list), cvr.data_length)
+tmplist = list(zip(sample_list, label_list))
+random.shuffle(tmplist)
+sample_list, label_list = zip(*tmplist)
 
-# 声音分类
-This repository contains the implementation (in PyTorch) of some models for Sound/Audio Classification.
+noise_list, _ = load_bilinoise_dataset(NOISE_ROOT="./NOISE/", noise_length=bcr.data_length,
+                                       number=100)
+train_loader = DataLoader(
+            MyDataset(audioseg=sample_list[:trte_rate], labellist=label_list[:trte_rate], noises=noise_list),
+            batch_size=self.configs["batch_size"], shuffle=True)
+```
+
+# data preprocessing, ipynb:
+- coughvid_clean_split: split the audio waveform into multiple segments, getting 2850 segments, then save to a csv meta file, write the sound file as wav format, the sample rating is 22050, the length of every sound is 1.465 second and the signal length is 32306.
+- coughvid_ml_prep: refer to a kaggle procedure for data preprocessing.
+- coughvid_ml: A machine learning method from kaggle.
+- covid19_explore: research for dataset covid19.
+
+# Data Readers:
+- ./readers/*_reader.py
+- ./featurizer.py: transform waveform to Mel-Spectrogram.
+- ./readers/audio.py: Audio Processers.
+
+# Machine (Deep) Learning Models for Chapter2,3,4
+- chapter2_VADmodel.py: Voice Activity Detection
+- chapter2_SEDmodel.py: Sound Events Detection
+- chapter3_ADRmodel.py: Attributed based Disentangled Representation
+- chapter4_SCDmodel.py: Sound Causality based Diagnosis
+- chapter4_SCDE2Emodel.py: End-to-End SCD model
+
+## 声音分类(VAD和SED)
 
 MFCC特征MelSpectrogram+TDNN
-模型默认参数：数据均为9s的（频谱长度288，波形长度147000），或者10s长度309，11s长度313。采样率均为16000，自己修改参数。
 
-框架：模型均在目录“./ackit/models/”下。
+框架：模型均在目录“./runs/”下。
 
-修改train.py中的文件，调用./ackit/trainer_***.py中的训练、测试代码。
+修改train.py中的文件，调用./chapter*_*.py中的训练、测试代码。
 ```commandline
-python train.py
+python chapter2_SEDmodel.py
 ```
-暂时实现了两个模型：卷积神经网络ConvEncoder，时延神经网络TDNN。
 
-./ackit/trainer_ConvEncoder.py，用卷积神经网络分类。输入格式(batch_size, channel, mel_length, mel_dim)
+### VAD: Voice Activity Detection
+./chapter2_VADmodel.py
 
-./ackit/trainer_tdnn.py，用TDNN分类。(batch_size, mel_length, mel_dim)
+### SED:Sound Event Detection
+./chapter2_SEDmodel.py
+
+## ADR: Attributed based Disentangled Representation
+model:
+- chapter3_ADRmodel.py
+- Attributed Mapper: ./modules/disentangle.py
+- loss function: ./modules/loss.py
+- backbone: ./models/conv_vae.py
+- cls: ./models/classifiers/py
+
 
 # Reference
 1. 参考其代码结构: https://github.com/yeyupiaoling/AudioClassification-Pytorch

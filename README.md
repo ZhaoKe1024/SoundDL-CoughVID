@@ -20,18 +20,38 @@ train_loader = DataLoader(
 ```
 
 # data preprocessing, ipynb:
-- coughvid_clean_split：把筛选后的音频切分为多段，得到约2850条，并将其保存csv meta文件，写入wav音频。采样率22050，每条长度32306，也即1.465秒。
-- coughvid_ml_prep：参考kaggle，预处理观察数据。
-- coughvid_ml：参考kaggle，进行机器学习。
-- covid19_explore：研究covid19数据集。
+- coughvid_clean_split: split the audio waveform into multiple segments, getting 2850 segments, then save to a csv meta file, write the sound file as wav format, the sample rating is 22050, the length of every sound is 1.465 second and the signal length is 32306.
+- coughvid_ml_prep: refer to a kaggle procedure for data preprocessing.
+- coughvid_ml: A machine learning method from kaggle.
+- covid19_explore: research for dataset covid19.
 
-# VAD: Voice Activity Detection
+# Data Readers:
+- ./readers/*_reader.py
+- ./featurizer.py: transform waveform to Mel-Spectrogram.
+- ./readers/audio.py: Audio Processers.
+
+# Machine (Deep) Learning Models for Chapter2,3,4
+- chapter2_VADmodel.py: Voice Activity Detection
+- chapter2_SEDmodel.py: Sound Events Detection
+- chapter3_ADRmodel.py: Attributed based Disentangled Representation
+- chapter4_SCDmodel.py: Sound Causality based Diagnosis
+- chapter4_SCDE2Emodel.py: End-to-End SCD model
+
+## VAD: Voice Activity Detection
 ./chapter2_VADmodel.py
 
-# SED:Sound Event Detection
+## SED:Sound Event Detection
 ./chapter2_SEDmodel.py
 
-# SoundDL-CoughVID
+## ADR: Attributed based Disentangled Representation
+model:
+- chapter3_ADRmodel.py
+- Attributed Mapper: ./modules/disentangle.py
+- loss function: ./modules/loss.py
+- backbone: ./models/conv_vae.py
+- cls: ./models/classifiers/py
+
+## SoundDL-CoughVID
  A study repository for coughvid
 
 # BiliCough
