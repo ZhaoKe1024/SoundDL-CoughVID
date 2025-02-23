@@ -52,8 +52,8 @@ def get_combined_data():
     return sample_list, label_list, noise_list
 
 
-class BiliCoughDataset(Dataset):
-    def __init__(self, audioseg, labellist, noises):
+class CoughDataset(Dataset):
+    def __init__(self, audioseg, labellist, noises=None):
         self.audioseg = audioseg
         self.labellist = labellist
         self.noises = noises
@@ -105,10 +105,10 @@ class Trainer2SED(object):
         trte_rate = int(len(sample_list) * 0.9)
 
         self.train_loader = DataLoader(
-            BiliCoughDataset(audioseg=sample_list[:trte_rate], labellist=label_list[:trte_rate], noises=noise_list),
+            CoughDataset(audioseg=sample_list[:trte_rate], labellist=label_list[:trte_rate], noises=noise_list),
             batch_size=self.configs["batch_size"], shuffle=True)
         self.valid_loader = DataLoader(
-            BiliCoughDataset(audioseg=sample_list[trte_rate:], labellist=label_list[trte_rate:], noises=noise_list),
+            CoughDataset(audioseg=sample_list[trte_rate:], labellist=label_list[trte_rate:], noises=noise_list),
             batch_size=self.configs["batch_size"], shuffle=False)
 
     def train(self):
@@ -195,6 +195,43 @@ class Trainer2SED(object):
         return vad_model
 
 
+def read_annotation(asspath: str, sedm2l: dict):
+    fin = open(asspath, 'r', encoding="ANSI")
+    line = fin.readline()
+    label_list = []
+    while line[:8] != "Dialogue":
+        line = fin.readline()
+    while line:
+        # print(line)
+        parts = line.split(',')
+        lab_tmp = parts[9].strip()
+        if lab_tmp == "useless":
+            pass
+        else:
+            label = None
+            # label_list.append(lab_tmp)
+            if lab_tmp[:3] == "hum":
+                label = lab_tmp[:3]
+            elif lab_tmp[:5] in ["cough", "noise", "sniff", "vomit"]:
+                label = lab_tmp[:5]
+            elif lab_tmp[:6] in ["inhale", "exhale", "speech"]:
+                label = lab_tmp[:6]
+            elif lab_tmp[:7] in ["breathe", "silence"]:
+                label = lab_tmp[:7]
+            elif lab_tmp[:8] in ["whooping"]:
+                label = lab_tmp[:8]
+            elif lab_tmp[:11] in ["clearthroat"]:
+                label = lab_tmp[:11]
+            else:
+                print(lab_tmp)
+                raise Exception("Unknown Class.")
+            label_list.append(sedm2l[label])
+        line = fin.readline()
+
+    # print(label_list)
+    return label_list
+
+
 def detection():
     import librosa
     from chapter2_VADmodel import VADModel
@@ -275,12 +312,21 @@ def detection():
                 pred_list = torch.concat((pred_list, y_pred), dim=0)
     pred_list = np.argmax(pred_list.data.cpu().numpy(), axis=1)
     print(pred_list)
-    result = [-1] * len(vad_pred_list)
-    for ind in range(len(indices)):
-        result[indices[ind]] = pred_list[ind]
+
     sed_label2name = {0: "breathe", 1: "clearthroat", 2: "cough", 3: "exhale", 4: "hum", 5: "inhale",
                       6: "sniff", 7: "speech", 8: "vomit", 9: "whooping", -1: "--"}
-    print([sed_label2name[it] for it in result])
+    vad_name2labbel = {"breathe": 0, "clearthroat": 1, "cough": 2, "exhale": 3, "hum": 4, "inhale": 5,
+                       "noise": 6, "silence": 7, "sniff": 8, "speech": 9, "vomit": 10, "whooping": 11}
+
+    vad_label2name = {0: "breathe", 1: "clearthroat", 2: "cough", 3: "exhale", 4: "hum", 5: "inhale",
+                      6: "noise", 7: "silence", 8: "sniff", 9: "speech", 10: "vomit", 11: "whooping"}
+    result = [7] * len(vad_pred_list)
+    for ind in range(len(indices)):
+        if pred_list[ind] > 5:
+            result[indices[ind]] = pred_list[ind] + 2
+        else:
+            result[indices[ind]] = pred_list[ind]
+    # print([vad_label2name[it] for it in result])
 
     result_squeezed = []
     it = result[0]
@@ -291,9 +337,21 @@ def detection():
             it = result[ind]
         ind += 1
     print(result_squeezed)
-    print([sed_label2name[it] for it in result_squeezed])
+    print([vad_label2name[it] for it in result_squeezed])
+
+    print("groundtruth:")
+    print(read_annotation(asspath=WAVE_ROOT + "bilicough_010.ass", sedm2l=vad_name2labbel))
 
 
 if __name__ == '__main__':
+    trainer = Trainer2SED()
+    trainer.train()
     # preprocessing_show()
-    detection()
+    # detection()
+    # sed_label2name = {0: "breathe", 1: "clearthroat", 2: "cough", 3: "exhale", 4: "hum", 5: "inhale",
+    #                   6: "sniff", 7: "speech", 8: "vomit", 9: "whooping"}
+    # vad_name2labbel = {"breathe": 0, "clearthroat": 1, "cough": 2, "exhale": 3, "hum": 4, "inhale": 5,
+    #                    "noise": 6, "silence": 7, "sniff": 8, "speech": 9, "vomit": 10, "whooping": 11}
+    # sed_name2labbel = {"breathe": 0, "clearthroat": 1, "cough": 2, "exhale": 3, "hum": 4, "inhale": 5,
+    #                    "sniff": 6, "speech": 7, "vomit": 8, "whooping": 9}
+    # read_annotation("G:/DATAS-Medical/BILIBILICOUGH/bilicough_010.ass", vad_name2labbel)

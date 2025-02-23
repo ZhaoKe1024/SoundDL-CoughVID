@@ -2,6 +2,8 @@
 # @Author : ZhaoKe
 # @Time : 2024-01-24 18:17
 import os
+import random
+
 import numpy as np
 import librosa
 from torch.utils.data import Dataset
@@ -164,6 +166,9 @@ class CoughVIDReader(object):
             if self.sr is None:
                 self.sr = sr
                 self.data_length = sr
+                print("coughvid data length:", sr, self.data_length)
+            if sr != self.data_length:
+                print("Error new sr not equal the data length:", sr, self.data_length)
             segs = None
             if len(w_data) > self.data_length:
                 segs = self.__split(w_data)
@@ -182,7 +187,8 @@ class CoughVIDReader(object):
         L = w_data.shape[0]
         overlap = int(self.data_length // 6)
         if L - self.data_length < overlap:
-            return [w_data]
+            st = random.randint(0, L-self.data_length)
+            return [w_data[st:st+self.data_length]]
         else:
             segs = []
             st = 0
@@ -207,7 +213,20 @@ class CoughVIDReader(object):
 
 
 if __name__ == '__main__':
+    from torch.utils.data import Dataset, DataLoader
+    from chapter2_SEDmodel import CoughDataset
+    from readers.noise_reader import load_bilinoise_dataset
     cvr = CoughVIDReader()
+    sample_list, label_list = cvr.get_sample_label_list()
+    noise_list, _ = load_bilinoise_dataset(NOISE_ROOT="G:/DATAS-Medical/BILINOISE/", noise_length=cvr.data_length,
+                                           number=100)
+    train_loader = DataLoader(
+        CoughDataset(audioseg=sample_list, labellist=label_list, noises=noise_list),
+        batch_size=64, shuffle=True)
+    for batch_id, (x_wav, y_lab) in tqdm(enumerate(train_loader),
+                                         desc="Training "):
+        x_wav = x_wav.unsqueeze(1)
+        print(x_wav.shape, y_lab.shape)
     # # ext_list()
     # # stat_coughvid()
     # label_list = read_labels_from_csv()

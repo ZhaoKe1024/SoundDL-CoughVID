@@ -78,29 +78,43 @@ class NEUCoughReader(object):
             curfile = None
             w_data, sr = None, None
             pbar = tqdm(total=321)
+            sr_list = []
             while line:
                 parts = line.split(',')
                 fname = parts[0]
                 if (fname != curfile) or (curfile is None):
                     curfile = fname
                     w_data, sr = librosa.load(path=self.ROOT + "{}_audiodata_元音字母a.wav".format(curfile))
-                    if self.sr is None:
+                    if sr not in sr_list:
+                        sr_list.append(sr)
                         self.sr = sr
                         self.data_length = sr
+                        print("Neucough data length:", self.data_length)
+                    if sr != self.sr:
+                        print("Error new sr not equal the data length:", sr, self.data_length)
                 st, en = int(min2sec(parts[1]) * sr), int(min2sec(parts[2]) * sr + 1)
                 one_data = w_data[st:en]
                 segs = None
                 if len(one_data) > self.data_length:
                     segs = self.__split(one_data)
+                    for it in segs:
+                        if len(it) != 22050:
+                            raise ValueError("Error length: > {}, need {}.".format(len(it), self.data_length))
+                    # print([len(it) for it in segs])
                 elif len(one_data) < self.data_length:
                     segs = self.__padding(one_data)
+                    if len(segs[0]) != 22050:
+                        raise ValueError("Error length: < {}, need {}.".format(len(segs[0]), self.data_length))
                 else:
                     segs = [one_data]
+                    if len(one_data) != 22050:
+                        raise ValueError("Error length: ==", len(one_data))
                 sample_list.extend(segs)
                 label_list.extend([2] * len(segs))
                 line = fin.readline()
                 pbar.update(1)
             fin.close()
+            print(sr_list)
         elif mode == "all":
             pass
         else:
@@ -108,10 +122,11 @@ class NEUCoughReader(object):
         return sample_list, label_list
 
     def __split(self, w_data):
-        L = w_data.shape[0]
+        L = len(w_data)
         overlap = int(self.data_length // 6)
         if L - self.data_length < overlap:
-            return [w_data]
+            st = random.randint(0, L-self.data_length)
+            return [w_data[st:st+self.data_length]]
         else:
             segs = []
             st = 0
@@ -198,6 +213,17 @@ class NEUCoughReader(object):
 
 
 if __name__ == '__main__':
-    neucoughset = NEUCoughReader()
-    Segs_List, label_List = neucoughset.get_sample_label_list(wavname="20240921111118")
-    print(len(Segs_List), '\n', label_List)
+    from torch.utils.data import DataLoader
+    from chapter2_SEDmodel import CoughDataset
+    from readers.noise_reader import load_bilinoise_dataset
+    ncr = NEUCoughReader()
+    sample_list, label_list = ncr.get_sample_label_list()
+    noise_list, _ = load_bilinoise_dataset(NOISE_ROOT="G:/DATAS-Medical/BILINOISE/", noise_length=ncr.data_length,
+                                           number=100)
+    train_loader = DataLoader(
+        CoughDataset(audioseg=sample_list, labellist=label_list, noises=noise_list),
+        batch_size=64, shuffle=True)
+    for batch_id, (x_wav, y_lab) in tqdm(enumerate(train_loader),
+                                         desc="Training "):
+        x_wav = x_wav.unsqueeze(1)
+        print(x_wav.shape, y_lab.shape)

@@ -68,6 +68,7 @@ class BiliCoughReader(object):
                 if sr not in sr_list:
                     sr_list.append(sr)
                 data_length = sr
+                # print("BBilicough Data length:", data_length)
             st, en = int(min2sec(item[2]) * sr), int(min2sec(item[3]) * sr + 1)
             if en > len(cur_wav):
                 en = len(cur_wav)

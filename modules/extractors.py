@@ -4,6 +4,7 @@
 # @Author: ZhaoKe
 # @File : extractors.py
 # @Software: PyCharm
+import torch
 import torch.nn as nn
 
 
@@ -51,7 +52,7 @@ class TDNN_Extractor(nn.Module):
     def forward(self, waveform):
         # x = x.transpose(2, 1)
         tgram = self.wav2mel(waveform)
-        print(tgram.shape)
+        # print(tgram.shape)
         x = self.td_layer1(self.leakyrelu(self.layer_norm(tgram)))
         # print("shape of x as a wave:", x.shape)
         x = self.td_layer2(self.leakyrelu(self.bn1(x)))

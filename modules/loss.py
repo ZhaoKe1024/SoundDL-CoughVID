@@ -58,6 +58,36 @@ class FocalLoss(nn.Module):
         return loss
 
 
+def pairwise_kl_loss(mu, log_sigma, batch_size):
+    mu1 = mu.unsqueeze(dim=1).repeat(1, batch_size, 1)
+    log_sigma1 = log_sigma.unsqueeze(dim=1).repeat(1, batch_size, 1)
+
+    mu2 = mu.unsqueeze(dim=0).repeat(batch_size, 1, 1)
+    log_sigma2 = log_sigma.unsqueeze(dim=0).repeat(batch_size, 1, 1)
+    # print(log_sigma2.shape, log_sigma1.shape)  # ([32, 16, 30]) torch.Size([16, 32, 30])
+    kl_divergence1 = 0.5 * (log_sigma2 - log_sigma1)
+    kl_divergence2 = 0.5 * torch.div(torch.exp(log_sigma1) + torch.square(mu1 - mu2), torch.exp(log_sigma2))
+    kl_divergence_loss1 = kl_divergence1 + kl_divergence2 - 0.5
+
+    pairwise_kl_divergence_loss = kl_divergence_loss1.sum(-1).sum(-1) / (batch_size - 1)
+    # print("Pair_kl_loss:", pairwise_kl_divergence_loss)
+    return pairwise_kl_divergence_loss
+
+
+def kl_2normal(pmu, plogvar, qmu, qlogvar):
+    return -0.5 * torch.sum(1 - qlogvar + plogvar - (torch.exp(plogvar) + (pmu - qmu) ** 2) / torch.exp(qlogvar))
+
+
+def vae_loss_fn(recon_x, x, mean, log_var, kl_weight=0.0005):
+    BCE = torch.nn.functional.mse_loss(
+        recon_x, x, reduction='sum')
+    KLD = -0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp())
+    # print(BCE.shape, KLD.shape)
+    # kl_weight = 0.00025
+    # print(BCE, KLD)
+    return (BCE + kl_weight * KLD) / x.size(0)
+
+
 if __name__ == '__main__':
     num_classes = 3
     # 定义自定义权重

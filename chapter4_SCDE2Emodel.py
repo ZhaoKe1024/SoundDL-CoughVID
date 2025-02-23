@@ -55,6 +55,11 @@ class CSEDNN(nn.Module):
         # )
         print("Pooling after Fusioning the TDNN and CNN.")
         self.pool = nn.MaxPool1d(kernel_size=8)
+
+        self.align_weight = 0.0025  # ame
+        self.kl_attri_weight = 0.01  # noise
+        self.kl_latent_weight = 0.0125  # clean
+
         self.multi_event_num = 8
         self.event_len = self.wave_conv.length // self.multi_event_num
         self.event_dim = self.wave_conv.length
@@ -85,7 +90,6 @@ class CSEDNN(nn.Module):
         self.dropout = nn.Dropout(p=0.1)
 
         print("Build 3-Layer MLP as Classifier for {}-class.".format(class_num))
-
 
     def forward(self, x):
         # x: (B, 1, 22050) 波形输入
