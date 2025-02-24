@@ -1,9 +1,25 @@
 [English](README.md)|[简体中文](README_cn.md)
 
-# CoughVID Reader:
+# data preprocessing in Jupyter:
+- coughvid_clean_split: split the audio waveform into multiple segments, getting 2850 segments, then save to a csv meta file, write the sound file as wav format, the sample rating is 22050, the length of every sound is 1.465 second and the signal length is 32306.
+- coughvid_ml_prep: refer to a kaggle procedure for data preprocessing.
+- coughvid_ml: A machine learning method from kaggle.
+- neudata_1explore.ipynb
+- neudata_2silence_segment.ipynb
+- neudata_3clean_split.ipynb
+- bilicough_1explore.ipynb
+- bilicough_2vad.ipynb
+- bilicough_3sed.ipynb
+- covid19_explore.ipynb: research for dataset covid19.
+
+# Data Readers:
+- ./readers/*_reader.py
+- ./featurizer.py: transform waveform to Mel-Spectrogram.
+- ./readers/audio.py: Audio Processers.
 - ./readers/coughvid_reader.py
 - ./readers/noise_reader.py: for data augmentation.
 
+### Take COUGHVID dataset as a example:
 ```text
 cvr = CoughVIDReader()
 sample_list, label_list = cvr.get_sample_label_list()
@@ -19,17 +35,6 @@ train_loader = DataLoader(
             batch_size=self.configs["batch_size"], shuffle=True)
 ```
 
-# data preprocessing, ipynb:
-- coughvid_clean_split: split the audio waveform into multiple segments, getting 2850 segments, then save to a csv meta file, write the sound file as wav format, the sample rating is 22050, the length of every sound is 1.465 second and the signal length is 32306.
-- coughvid_ml_prep: refer to a kaggle procedure for data preprocessing.
-- coughvid_ml: A machine learning method from kaggle.
-- covid19_explore: research for dataset covid19.
-
-# Data Readers:
-- ./readers/*_reader.py
-- ./featurizer.py: transform waveform to Mel-Spectrogram.
-- ./readers/audio.py: Audio Processers.
-
 # Machine (Deep) Learning Models for Chapter2,3,4
 - chapter2_VADmodel.py: Voice Activity Detection
 - chapter2_SEDmodel.py: Sound Events Detection
@@ -37,13 +42,13 @@ train_loader = DataLoader(
 - chapter4_SCDmodel.py: Sound Causality based Diagnosis
 - chapter4_SCDE2Emodel.py: End-to-End SCD model
 
-## VAD: Voice Activity Detection
+## 1 VAD: Voice Activity Detection
 ./chapter2_VADmodel.py
 
-## SED:Sound Event Detection
+## 2 SED:Sound Event Detection
 ./chapter2_SEDmodel.py
 
-## ADR: Attributed based Disentangled Representation
+## 3 ADR: Attributed based Disentangled Representation
 model:
 - chapter3_ADRmodel.py
 - Attributed Mapper: ./modules/disentangle.py
@@ -51,9 +56,5 @@ model:
 - backbone: ./models/conv_vae.py
 - cls: ./models/classifiers/py
 
-## SoundDL-CoughVID
- A study repository for coughvid
-
-# BiliCough
-
-# NEU
+## 4 SCD Diagnosis using GNN/Attention
+./chapter4_SCDmodel.py

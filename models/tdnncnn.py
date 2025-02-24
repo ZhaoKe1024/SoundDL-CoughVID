@@ -32,7 +32,7 @@ class WSFNN(nn.Module):
 
         # Mel分支（频域特征）
         self.mel_conv = nn.Sequential(
-            nn.Conv2d(1, 16, kernel_size=3, padding=1),
+            nn.Conv2d(1, 16, kernel_size=3, padding=1, bias=True),
             nn.BatchNorm2d(16),
             nn.SiLU(),
             nn.Conv2d(16, 16, kernel_size=3, padding=1),
