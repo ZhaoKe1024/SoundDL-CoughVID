@@ -9,6 +9,7 @@ import librosa
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
+
 # from readers.audio import AudioSegment, wav_padding
 # from readers.featurizer import wav_slice_padding
 
@@ -135,7 +136,7 @@ def min2sec(t: str):
 
 
 class CoughVIDReader(object):
-    def __init__(self):
+    def __init__(self, data_length=22050):
         # , ROOT="F:/DATAS/NEUCOUGHDATA_COUGHSINGLE/"
         self.ROOT = "F:/DATAS/COUGHVID-public_dataset_v3/coughvid_20211012_fine/"
         self.metapath = "F:/DATAS/COUGHVID-public_dataset_v3/waveinfo_fewtoml_split.csv"
@@ -143,8 +144,55 @@ class CoughVIDReader(object):
         #                      index_col=None, encoding="ansi")
         self.m2l = {"healthy": 0, "COVID-19": 1}
         self.sr = None
-        self.data_length = None
+        self.data_length = data_length
         self.desc = ""
+
+    def get_sample_label_attris(self):
+        """
+        :param event:
+        :return:
+            sample_list: sample of cough
+            label_list: cough(2)
+        """
+        sample_list, label_list = [], []
+        attri1_list = []
+        attri2_list = []
+        m2l0 = {"healthy": 0, "COVID-19": 1}
+        m2l1 = {"dry": 0, "wet": 2, "unknown": 1}
+        m2l2 = {"FALSE": 0, "TRUE": 1}
+        fin = open(self.metapath, 'r')
+        fin.readline()
+        line = fin.readline()
+        w_data, sr = None, None
+        pbar = tqdm(total=2850)
+        while line:
+            parts = line.split(',')
+            fname = parts[1]
+            w_data, sr = librosa.load(path=self.ROOT + fname + ".wav")
+            if self.sr is None:
+                self.sr = sr
+                # self.data_length = sr
+                print("coughvid data length:", sr, self.data_length)
+            # if sr != self.data_length:
+            #     print("Error new sr not equal the data length:", sr, self.data_length)
+            # segs = None
+            # if len(w_data) > self.data_length:
+            #     segs = self.__split(w_data)
+            # elif len(w_data) < self.data_length:
+            #     segs = self.__padding(w_data)
+            # else:
+            #     segs = [w_data]
+            # sample_list.extend(segs)
+            # label_list.extend([2]*len(segs))
+            # attri1_list.append()
+            sample_list.append(w_data)
+            label_list.append(m2l0[parts[2]])
+            attri1_list.append(m2l1[parts[3]])
+            attri2_list.append(m2l2[parts[5]])
+            line = fin.readline()
+            pbar.update(1)
+        fin.close()
+        return sample_list, label_list, attri1_list, attri2_list
 
     def get_sample_label_list(self):
         """
@@ -162,13 +210,13 @@ class CoughVIDReader(object):
         while line:
             parts = line.split(',')
             fname = parts[1]
-            w_data, sr = librosa.load(path=self.ROOT + fname+".wav")
+            w_data, sr = librosa.load(path=self.ROOT + fname + ".wav")
             if self.sr is None:
                 self.sr = sr
                 self.data_length = sr
                 print("coughvid data length:", sr, self.data_length)
-            if sr != self.data_length:
-                print("Error new sr not equal the data length:", sr, self.data_length)
+            # if sr != self.data_length:
+            #     print("Error new sr not equal the data length:", sr, self.data_length)
             segs = None
             if len(w_data) > self.data_length:
                 segs = self.__split(w_data)
@@ -177,7 +225,7 @@ class CoughVIDReader(object):
             else:
                 segs = [w_data]
             sample_list.extend(segs)
-            label_list.extend([2]*len(segs))
+            label_list.extend([2] * len(segs))
             line = fin.readline()
             pbar.update(1)
         fin.close()
@@ -187,8 +235,8 @@ class CoughVIDReader(object):
         L = w_data.shape[0]
         overlap = int(self.data_length // 6)
         if L - self.data_length < overlap:
-            st = random.randint(0, L-self.data_length)
-            return [w_data[st:st+self.data_length]]
+            st = random.randint(0, L - self.data_length)
+            return [w_data[st:st + self.data_length]]
         else:
             segs = []
             st = 0
@@ -212,21 +260,117 @@ class CoughVIDReader(object):
         return [new_signal]
 
 
+def add_column_age():
+    fpath0 = "F:/DATAS/COUGHVID-public_dataset_v3/coughvid_20211012/metadata_compiled.csv"
+    fpath1 = "F:/DATAS/COUGHVID-public_dataset_v3/waveinfo_fewtoml_split.csv"
+
+    age_dict = {}
+    fin0 = open(fpath0, 'r')
+    fin0.readline()
+    line = fin0.readline()
+    while line:
+        parts = line.split(',')
+        fname_item = parts[1]
+        age_item = parts[6]
+        if len(age_item) > 0:
+            age_dict[fname_item] = int(float(age_item))
+        line = fin0.readline()
+    fin0.close()
+    print("all file is count to:", len(age_dict))
+
+    file_list = []
+    fin1 = open(fpath1, 'r')
+    fin1.readline()
+    line = fin1.readline()
+    fitem = None
+    cnt = 0
+    while line:
+        parts = line.split(',')
+        fname_item = parts[1].split('_')[1]
+        if (fitem is None) or (fitem != fname_item):
+            fitem = fname_item
+            file_list.append(fname_item)
+            cnt += 1
+        line = fin1.readline()
+    fin1.close()
+    print("all file is count to:", len(file_list), '/', cnt)
+
+    age_list = []
+    for item in file_list:
+        if item in age_dict:
+            age_list.append(age_dict[item])
+        else:
+            age_list.append(-1)
+            print(item)
+    print(-1 in age_list)
+    print(age_list)
+
+    fout = open("F:/DATAS/COUGHVID-public_dataset_v3/waveinfo_fewtoml_split_1.csv", 'w')
+    fin1 = open(fpath1, 'r')
+    line = fin1.readline()
+    fout.write(line.strip() + ',age\n')
+    line = fin1.readline()
+    fout.write(line)
+    while line:
+        parts = line.split(',')
+        fname_item = parts[1].split('_')[1]
+        if fname_item in age_dict:
+            fout.write(line.strip() + ',' + str(age_dict[fname_item]) + '\n')
+        else:
+            fout.write(line.strip() + ',-1\n')
+        line = fin1.readline()
+    fin1.close()
+    fout.close()
+
+
+def count_validdata():
+    fin = open("F:/DATAS/COUGHVID-public_dataset_v3/waveinfo_fewtoml_split_1.csv", 'r')
+    # fin1 = open("F:/DATAS/COUGHVID-public_dataset_v3/waveinfo_fewtoml_split_2.csv", 'w')
+    line = fin.readline()
+    line = fin.readline()
+    # fni = None
+    cnt = 0
+    while line:
+        parts = line.split(',')
+        # fn = parts[1]
+        # if (fni is None) or (fn != fni):
+        # fni = fn
+        ct, se, age, isvalid = parts[3], parts[9], parts[10], parts[11].strip()
+        # print(isvalid)
+        if isvalid == "1":
+            print("{}: {}\t{}\t{}\t{}".format(cnt, isvalid, ct, se, age))
+            cnt += 1
+        # else:
+        #     print(cnt, ct != "unknown", se != "unknown", age != "-1", isvalid == "0")
+        line = fin.readline()
+        # cnt += 1
+
+    fin.close()
+
+
 if __name__ == '__main__':
-    from torch.utils.data import Dataset, DataLoader
-    from chapter2_SEDmodel import CoughDataset
-    from readers.noise_reader import load_bilinoise_dataset
-    cvr = CoughVIDReader()
-    sample_list, label_list = cvr.get_sample_label_list()
-    noise_list, _ = load_bilinoise_dataset(NOISE_ROOT="G:/DATAS-Medical/BILINOISE/", noise_length=cvr.data_length,
-                                           number=100)
-    train_loader = DataLoader(
-        CoughDataset(audioseg=sample_list, labellist=label_list, noises=noise_list),
-        batch_size=64, shuffle=True)
-    for batch_id, (x_wav, y_lab) in tqdm(enumerate(train_loader),
-                                         desc="Training "):
-        x_wav = x_wav.unsqueeze(1)
-        print(x_wav.shape, y_lab.shape)
+    # ROOT = "F:/DATAS/COUGHVID-public_dataset_v3/coughvid_20211012_fine/"
+    # y, sr = librosa.load(ROOT+"sound0006_0733f882-d7fd-4dc5-a1b0-8aeec64fc112.wav")
+    # print(len(y), sr)
+    # add_column_age()
+    count_validdata()
+
+    # from torch.utils.data import Dataset, DataLoader
+    # from chapter2_SEDmodel import CoughDataset
+    # from readers.noise_reader import load_bilinoise_dataset
+    #
+    # cvr = CoughVIDReader(data_length=22050)
+    # sample_list, label_list, atr1, atr2 = cvr.get_sample_label_attris()
+    # noise_list, _ = load_bilinoise_dataset(NOISE_ROOT="G:/DATAS-Medical/BILINOISE/", noise_length=cvr.data_length,
+    #                                        number=100)
+    # train_loader = DataLoader(
+    #     CoughDataset(audioseg=sample_list, labellist=label_list, noises=noise_list),
+    #     batch_size=64, shuffle=True)
+    # for batch_id, (x_wav, y_lab) in tqdm(enumerate(train_loader),
+    #                                      desc="Training "):
+    #     x_wav = x_wav.unsqueeze(1)
+    #     print(x_wav.shape, y_lab.shape)
+
     # # ext_list()
     # # stat_coughvid()
     # label_list = read_labels_from_csv()

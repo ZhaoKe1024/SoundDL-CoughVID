@@ -185,18 +185,30 @@ if __name__ == '__main__':
     # m = ConvVAE(inp_shape=(1, 94, 128), flat=False).to(device)
     # x_recon, z, mean_lant, logvar_lant = m(x)
     # print(x_recon.shape, z.shape, mean_lant.shape, logvar_lant.shape)
+    import torchaudio
+    mel_extractor = torchaudio.transforms.MelSpectrogram(
+        sample_rate=22050, n_fft=2048, hop_length=512, n_mels=128
+    ).to(device)
+    x = torch.randn(size=(16, 1, 32306)).to(device)
+    # mel_extractor = torchaudio.transforms.MelSpectrogram(
+    #     sample_rate=22050, n_fft=2048, hop_length=512, n_mels=64
+    # ).to(device)
+    # x = torch.randn(size=(16, 1, 22050)).to(device)
 
+    x_mel = mel_extractor(x)
+    print(x_mel.shape)
     enc1 = ConvEncoder(inp_shape=(1, 94, 128), flat=True).to(device)
-    enc2 = ConvEncoder(inp_shape=(1, 94, 128), flat=False).to(device)
-    x = torch.randn(size=(16, 1, 94, 128)).to(device)
-    x_feat1 = enc1(x)  # [16, 4480]
-    x_feat2 = enc2(x)  # [16, 128, 5, 7]
-    print(x_feat1.shape, x_feat2.shape)
 
-    dec1 = ConvDecoder(inp_shape=(128, 5, 7), flat=True, latent_dim=128, feat_c=8).to(device)
-    dec2 = ConvDecoder(inp_shape=(128, 5, 7), flat=False, latent_dim=128, feat_c=8).to(device)
-    l_feat1 = torch.randn(size=(16, 128)).to(device)
-    l_feat2 = torch.randn(size=(16, 8, 5, 7)).to(device)
-    x_recon1 = dec1(l_feat1, enc1.shapes)
-    x_recon2 = dec2(l_feat2, enc2.shapes)
-    print(x_recon1.shape, x_recon2.shape)
+    # enc2 = ConvEncoder(inp_shape=(1, 94, 128), flat=False).to(device)
+    # # x = torch.randn(size=(16, 1, 94, 128)).to(device)
+    # x_feat1 = enc1(x)  # [16, 4480]
+    # x_feat2 = enc2(x)  # [16, 128, 5, 7]
+    # print(x_feat1.shape, x_feat2.shape)
+    #
+    # dec1 = ConvDecoder(inp_shape=(128, 5, 7), flat=True, latent_dim=128, feat_c=8).to(device)
+    # dec2 = ConvDecoder(inp_shape=(128, 5, 7), flat=False, latent_dim=128, feat_c=8).to(device)
+    # l_feat1 = torch.randn(size=(16, 128)).to(device)
+    # l_feat2 = torch.randn(size=(16, 8, 5, 7)).to(device)
+    # x_recon1 = dec1(l_feat1, enc1.shapes)
+    # x_recon2 = dec2(l_feat2, enc2.shapes)
+    # print(x_recon1.shape, x_recon2.shape)

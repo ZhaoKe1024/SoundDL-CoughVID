@@ -12,6 +12,7 @@ import librosa
 
 def load_bilinoise_dataset(NOISE_ROOT="G:/DATAS-Medical/BILINOISE/", noise_length=22050, number=1):
     # noise_length = None
+    print("noise length:", noise_length)
     filter_length = 25
     new_noise_list = []
     new_label_list = []
@@ -34,3 +35,7 @@ def load_bilinoise_dataset(NOISE_ROOT="G:/DATAS-Medical/BILINOISE/", noise_lengt
             break
     return new_noise_list, new_label_list
 
+
+if __name__ == '__main__':
+    y, sr = librosa.load("G:/DATAS-Medical/BILINOISE/bilinoise_02.wav_noise_1522.wav")
+    print(len(y), sr)

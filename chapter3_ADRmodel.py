@@ -4,29 +4,39 @@
 # @Author: ZhaoKe
 # @File : chapter3_ADRmodel.py
 # @Software: PyCharm
+import os
+import time
 import itertools
 import random
 from tqdm import tqdm
+import numpy as np
+import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
+import torchaudio
 from models.conv_vae import ConvVAE
 from modules.disentangle import AME
 from modules.loss import vae_loss_fn, kl_2normal, pairwise_kl_loss
+from readers.coughvid_reader import CoughVIDReader
+from readers.noise_reader import load_bilinoise_dataset
 
 
 class CoughDataset(Dataset):
     def __init__(self, audioseg, labellist, attri1_list, attri2_list, noises):
         self.audioseg = audioseg
         self.labellist = labellist
+        self.attri1list = attri1_list
+        self.attri2list = attri2_list
         self.noises = noises
 
     def __getitem__(self, ind):
         # When reading waveform data, add noise as data enhancement according to a 1/3 probability.
         if random.random() < 0.333:
-            return self.audioseg[ind] + self.noises[random.randint(0, len(self.noises) - 1)], self.labellist[ind]
+            return self.audioseg[ind] + self.noises[random.randint(0, len(self.noises) - 1)], self.labellist[ind], \
+                self.attri1list[ind], self.attri2list[ind]
         else:
-            return self.audioseg[ind], self.labellist[ind]
+            return self.audioseg[ind], self.labellist[ind], self.attri1list[ind], self.attri2list[ind]
 
     def __len__(self):
         return len(self.audioseg)
@@ -74,6 +84,8 @@ class AGEDR(nn.Module):
         self.recon_loss = nn.MSELoss()
         self.categorical_loss = nn.CrossEntropyLoss()
 
+        self.flag = True
+
     def forward(self, x_input, attri1, attri2, y_lab):
         # ---------------------Loss Vae------------------------
         x_recon, z_mu, z_logvar, z_latent = self.vae(x_input)  # [32, 1, 64, 128] [32, 30] [32, 30] [32, 30]
@@ -106,19 +118,29 @@ class AGEDR(nn.Module):
 
         y_pred = self.classifier(z_mu)  # torch.Size([32, 2])
         # Loss_cls = self.cls_weight * self.categorical_loss(y_pred, y_lab)
-        Loss_cls = self.cls_weight * self.focal_loss(y_pred, y_lab)
-
-        return Loss_vae, Loss_attri, Loss_disen, Loss_cls
+        Loss_cls = self.cls_weight * self.categorical_loss(y_pred, y_lab)
+        if self.flag:
+            self.flag = False
+            print("z_h:{}, a1.shape:{}, a2.sahpe:{}".format(z_latent.shape, mu1_latent.shape, mu2_latent.shape))
+            print("pred:{}; x_Recon:{}".format(y_pred.shape, x_recon.shape))
+            print("part[recon] recon loss:{};".format(Loss_recon))
+        return x_recon, z_mu, Loss_vae, Loss_attri, Loss_disen, Loss_cls
 
 
 class ADRTrainer(object):
-    def __init__(self):
-        self.lambda_cat = 1.
-        self.lambda_con = 0.1
+    def __init__(self, mode="train"):
+        self.mode = mode
+        self.save_dir = "./runs/c3adrmodel/"
+        if not os.path.exists(self.save_dir):
+            os.makedirs(self.save_dir, exist_ok=True)
+        self.run_save_dir = self.save_dir + time.strftime("%Y%m%d%H%M", time.localtime()) + '/'
+
+        # self.lambda_cat = 1.
+        # self.lambda_con = 0.1
         self.img_size, self.channel = (64, 128), 1
-        self.class_num, self.batch_size = 2, 16
-        self.latent_dim = 30
-        self.a1len, self.a2len = 6, 8
+        self.class_num = 2
+        self.latent_dim = 32
+        self.a1len, self.a2len = 12, 8
         self.blen = self.latent_dim - self.a1len - self.a2len
         self.configs = {
             "recon_weight": 0.01,
@@ -127,8 +149,6 @@ class ADRTrainer(object):
             "kl_c_weight": 0.075,
             "channels": 1,
             "class_num": 10,
-            "code_dim": 2,
-            "img_size": 32,
             "latent_dim": 62,
             "sample_interval": 400,
             "fit": {
@@ -140,33 +160,71 @@ class ADRTrainer(object):
             }
         }
         self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+        self.save_setting_str = ""
+        self.save_setting_str += "dataset:{}, batch_size:{}, noise_p:{}\n".format(
+            "CoughVID(length=32306, mel_shape=(dim=128, length=64))",
+            self.configs["fit"]["batch_size"],
+            "0.333")
+        self.save_setting_str += "epoch_num:{},\n".format(self.configs["fit"]["epochs"])
 
     def __build_dataloader(self):
-        pass
-        test_batch = [torch.rand(size=(1, 22050)) for _ in range(512)]
-        test_y = [torch.randint(low=0, high=2, size=(1,)) for _ in range(512)]
-        noise_list = [torch.rand(size=(1, 22050)) for _ in range(512)]
-        self.test_loader = DataLoader(
-            CoughDataset(audioseg=test_batch, labellist=test_y, noises=noise_list),
-            batch_size=self.configs["fit"]["batch_size"], shuffle=True)
+        cvr = CoughVIDReader(data_length=32306)
+        print("waveform length:", cvr.data_length)
+        sample_list, label_list, atri1, atri2 = cvr.get_sample_label_attris()
+        tmplist = list(zip(sample_list, label_list, atri1, atri2))
+        random.shuffle(tmplist)
+        sample_list, label_list, atri1, atri2 = zip(*tmplist)
+        trte_rate = int(0.9*len(sample_list)+1)
+        noise_list, _ = load_bilinoise_dataset(NOISE_ROOT="G:/DATAS-Medical/BILINOISE/", noise_length=cvr.data_length,
+                                               number=100)
+        self.train_loader = DataLoader(
+            CoughDataset(audioseg=sample_list[:trte_rate], labellist=label_list[:trte_rate],
+                         noises=noise_list, attri1_list=atri1[:trte_rate],
+                         attri2_list=atri2[trte_rate:]),
+            batch_size=64, shuffle=True)
+        self.train_loader = DataLoader(
+            CoughDataset(audioseg=sample_list[trte_rate:], labellist=label_list[trte_rate:],
+                         noises=noise_list, attri1_list=atri1[trte_rate:],
+                         attri2_list=atri2[trte_rate:]),
+            batch_size=64, shuffle=False)
 
     def __build_model(self):
+        self.wav2mel = torchaudio.transforms.MelSpectrogram(sample_rate=22050, n_fft=2048, hop_length=512,
+                                                            n_mels=128).to(self.device)
         self.agedr = AGEDR(latent_dim=self.latent_dim, a1len=self.a1len, a2len=self.a2len, class_num=self.class_num).to(
             self.device)
-        self.optimizer_Em = torch.optim.Adam(
-            itertools.chain(self.agedr.ame1.parameters(), self.agedr.ame2.parameters()), lr=0.0003, betas=(0.5, 0.999))
-        self.optimizer_vae = torch.optim.Adam(self.agedr.vae.parameters(), lr=0.0001, betas=(0.5, 0.999))
-        self.optimizer_cls = torch.optim.Adam(self.agedr.classifier.parameters(), lr=0.0002, betas=(0.5, 0.999))
+        if self.mode == "train":
+            self.optimizer_Em = torch.optim.Adam(
+                itertools.chain(self.agedr.ame1.parameters(), self.agedr.ame2.parameters()), lr=0.0003,
+                betas=(0.5, 0.999))
+            self.optimizer_vae = torch.optim.Adam(self.agedr.vae.parameters(), lr=0.0001, betas=(0.5, 0.999))
+            self.optimizer_cls = torch.optim.Adam(self.agedr.classifier.parameters(), lr=0.0002, betas=(0.5, 0.999))
+            self.save_setting_str += "AGEDR(AME1(num=3->dim=12, lr=0.0003)+AME2(num=2->dim=8,lr=0.0003)+VAE(latent_dim=12,lr=0.0001)+Cls(class_num=2,lr=0.0002)),Adam.\n".format()
+            self.save_setting_str += "align_weight={}, self.recon_weight={}, self.cls_weight={}, self.vae_weight={}, self.kl_attri_weight={}, self.kl_latent_weight={}\n".format(
+                self.agedr.align_weight, self.agedr.recon_weight, self.agedr.cls_weight, self.agedr.vae_weight,
+                self.agedr.kl_attri_weight,
+                self.agedr.kl_latent_weight)
 
     def train(self):
-        pass
-
+        print("loading data.")
+        self.__build_dataloader()
+        print("data were loaded.\nbuilding model.")
+        self.__build_model()
+        print("models were built.")
         pbar = tqdm(total=self.configs["fit"]["epochs"])
         flag = True
+        Loss_List_Epoch = []
         for epoch_id in range(self.configs["fit"]["epochs"]):
+            Loss_List_Total = []
+            Loss_List_disen = []
+            Loss_List_attri = []
+            Loss_List_vae = []
+            Loss_List_cls = []
+            x_mel = None
+            x_recon = None
             pbar.set_description(desc="Epoch {}:".format(epoch_id))
-            for batch_id, (x_wav, y_lab, ctype, sevty) in enumerate(self.test_loader):
-                x_mel = x_wav.to(self.device)
+            for batch_id, (x_wav, y_lab, ctype, sevty) in enumerate(self.train_loader):
+                x_mel = self.wav2mel(x_wav.to(self.device)).unsqueeze(1)
                 y_lab = y_lab.to(self.device)
                 ctype = ctype.to(self.device)
                 sevty = sevty.to(self.device)
@@ -177,7 +235,8 @@ class ADRTrainer(object):
                 self.optimizer_vae.zero_grad()
                 self.optimizer_cls.zero_grad()
 
-                Loss_vae, Loss_attri, Loss_disen, Loss_cls = self.agedr.forward(x_input=x_mel, attri1=ctype, attri2=sevty, y_lab=y_lab)
+                x_recon, z_mu, Loss_vae, Loss_attri, Loss_disen, Loss_cls = self.agedr(x_input=x_mel, attri1=ctype,
+                                                                                       attri2=sevty, y_lab=y_lab)
                 Loss_total = Loss_vae + Loss_attri + Loss_disen + Loss_cls
                 Loss_total.backward()
 
@@ -185,8 +244,97 @@ class ADRTrainer(object):
                 self.optimizer_vae.step()
                 self.optimizer_Em.step()
 
+                Loss_List_Total.append(Loss_total.item())
+                Loss_List_disen.append(Loss_disen.item())
+                Loss_List_attri.append(Loss_attri.item())
+                Loss_List_vae.append(Loss_vae.item())
+                Loss_List_cls.append(Loss_cls.item())
+
+                if epoch_id == 0 and batch_id == 0:
+                    print("part[cls] cls loss:{};".format(Loss_cls))
+                    print("part[disen] beta alpha kl loss:{};".format(Loss_disen))
+                    print("part[attri] pdf loss:{};".format(Loss_attri))
+            Loss_List_Epoch.append([np.array(Loss_List_Total).mean(),
+                                    np.array(Loss_List_disen).mean(),
+                                    np.array(Loss_List_attri).mean(),
+                                    np.array(Loss_List_vae).mean(),
+                                    np.array(Loss_List_cls).mean()])
+            # print("Loss Parts:")
+            ns = ["total", "disen", "attri", "vae", "cls"]
+            if epoch_id % 10 == 0:
+                if epoch_id == 0:
+                    if not os.path.exists(self.run_save_dir):
+                        os.makedirs(self.run_save_dir, exist_ok=True)
+                        with open(self.run_save_dir + "setting.txt", 'w') as fout:
+                            fout.write(self.save_setting_str)
+                else:
+                    save_dir_epoch = self.run_save_dir + "epoch{}/".format(epoch_id)
+                    os.makedirs(save_dir_epoch, exist_ok=True)
+                    with open(save_dir_epoch + "losslist_epoch_{}.csv".format(epoch_id), 'w') as fin:
+                        fin.write("total,disen,attri,vae,cls\n")
+                        for epochlist in Loss_List_Epoch:
+                            fin.write(",".join([str(it) for it in epochlist]) + '\n')
+                    Loss_All_Lines = np.array(Loss_List_Epoch)
+                    cs = ["black", "red", "green", "orange", "blue"]
+                    # ns = ["total", "disen", "attri", "vae", "cls"]
+                    for j in range(5):
+                        plt.figure(j)
+                        dat_lin = Loss_All_Lines[:, j]
+                        plt.plot(range(len(dat_lin)), dat_lin, c=cs[j], alpha=0.7)
+                        plt.title("Loss " + ns[j])
+                        plt.savefig(save_dir_epoch + f'loss_{ns[j]}_iter_{epoch_id}.png')
+                        plt.close(j)
+                    torch.save(self.agedr.state_dict(), save_dir_epoch + "epoch_{}_agedr.pth".format(epoch_id))
+
+                    torch.save(self.optimizer_Em.state_dict(),
+                               save_dir_epoch + "epoch_{}_optimizer_Em.pth".format(epoch_id))
+                    torch.save(self.optimizer_vae.state_dict(),
+                               save_dir_epoch + "epoch_{}_optimizer_vae.pth".format(epoch_id))
+                    torch.save(self.optimizer_cls.state_dict(),
+                               save_dir_epoch + "epoch_{}_optimizer_cls.pth".format(epoch_id))
+
+                    with open(save_dir_epoch + "ckpt_info_{}.txt".format(epoch_id), 'w') as fin:
+                        fin.write("epoch:{}\n".format(epoch_id))
+                        fin.write("total,disen,attri,vae,cls\n")
+                        fin.write(",".join([str(it) for it in Loss_List_Epoch[-1]]) + '\n')
+                    if x_recon is not None:
+                        plt.figure(5)
+                        img_to_origin = x_mel[:3].squeeze().data.cpu().numpy()
+                        img_to_plot = x_recon[:3].squeeze().data.cpu().numpy()
+                        for i in range(1, 4):
+                            plt.subplot(3, 2, (i - 1) * 2 + 1)
+                            plt.imshow(img_to_origin[i - 1])
+
+                            plt.subplot(3, 2, (i - 1) * 2 + 2)
+                            plt.imshow(img_to_plot[i - 1])
+                        plt.savefig(save_dir_epoch + "recon_epoch-{}.png".format(epoch_id), format="png")
+                        plt.close(5)
+                    else:
+                        raise Exception("x_recon is None.")
             pbar.update(n=1)
+
+    def valid(self):
+        self.__build_model()
+        if self.mode == "valid":
+            self.__load_checkpoint(self.save_dir + "202502251638/epoch30/epoch_30_agedr.pth")
+
+    def __load_checkpoint(self, pretrain_path):
+        self.agedr.load_state_dict(state_dict=torch.load(f=pretrain_path))
 
 
 if __name__ == '__main__':
-    pass
+    trainer = ADRTrainer()
+    trainer.train()
+    # cvr = CoughVIDReader(data_length=32306)
+    # print(cvr.data_length)
+    # sample_list, label_list, atri1, atri2 = cvr.get_sample_label_attris()
+    # noise_list, _ = load_bilinoise_dataset(NOISE_ROOT="G:/DATAS-Medical/BILINOISE/", noise_length=cvr.data_length,
+    #                                        number=100)
+    # train_loader = DataLoader(
+    #     CoughDataset(audioseg=sample_list, labellist=label_list, noises=noise_list, attri1_list=atri1,
+    #                  attri2_list=atri2),
+    #     batch_size=64, shuffle=True)
+    # for batch_id, (x_wav, y_lab, atr1, atr2) in tqdm(enumerate(train_loader),
+    #                                                  desc="Training "):
+    #     x_wav = x_wav.unsqueeze(1)
+    #     print(x_wav.shape, y_lab.shape)
