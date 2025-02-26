@@ -10,6 +10,7 @@ import torchaudio
 from modules.extractors import TDNN_Extractor
 import torch.nn.functional as F
 from modules.attentions import SimpleSelfAttention, SimpleGCNLayer
+# from chapter2_SEDmodel import SEDModel
 # from chapter3_ADRmodel import AGEDR
 name2label = {"breathe": 0, "cough": 2, "clearthroat": 1, "exhale": 3, "hum": 4, "inhale": 5, "noise": 6, "silence": 7,
               "sniff": 8, "speech": 9, "vomit": 10, "whooping": 11}

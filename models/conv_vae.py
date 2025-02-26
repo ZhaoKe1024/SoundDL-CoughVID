@@ -45,7 +45,7 @@ class ConvVAE(nn.Module):
         mean_lant, logvar_lant = self.calc_mean(x_feat), self.calc_logvar(x_feat)
         z = self.sampling(mean_lant, logvar_lant, device=torch.device("cuda"))
 
-        print("recon:", z.shape)
+        # print("recon:", z.shape)
         x_recon = self.decoder(inp_feat=z, shape_list=self.encoder.shapes)
         # x_pred = self.cls(x_feat)
         return x_recon, z, mean_lant, logvar_lant
@@ -135,7 +135,7 @@ class ConvDecoder(nn.Module):
             x_recon = self.unflatten(self.decoder_lin(inp_feat))
         else:
             x_recon = self.decoder_proj(inp_feat)
-        print(x_recon.shape)
+        # print(x_recon.shape)
         # decoder
         x_recon = self.decoder_conv1(x_recon, output_size=shape_list[-2])
         x_recon = self.decoder_norm1(x_recon)

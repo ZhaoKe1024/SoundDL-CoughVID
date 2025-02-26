@@ -8,6 +8,8 @@
 暂时测试代码用
 """
 import random
+
+import numpy as np
 from tqdm import tqdm
 import torch
 from readers.bilicough_reader import BiliCoughReader
@@ -86,13 +88,45 @@ class CoughDataset(Dataset):
         return len(self.audioseg)
 
 
+def merge_segments(segments):
+    pass
+
+
+def split_series(series):
+    pass
+
+
+def wav_fold():
+    bs = 16
+    length = 19
+    sig_length = 22050
+    overlap = sig_length // 2
+    x_list = [torch.rand(sig_length) for _ in range(length)]
+    wav_inp = None
+    for item in x_list:
+        if wav_inp is None:
+            wav_inp = item
+        else:
+            wav_inp = torch.concat((wav_inp[:len(wav_inp) - overlap], item), dim=-1)
+    print("overlap:{}, length:{}".format(overlap, wav_inp.shape))
+
+    y, sr = np.random.rand(367543), 22050
+    print("wav length:", y.shape)
+    data_length, seg_length = sr, 19
+    overlap = data_length // 2
+    series_length = data_length + overlap*(seg_length-1)
+    print("series length:", series_length)
+
+
 if __name__ == '__main__':
-    sample_list, label_list, noise_list = get_combined_data()
-    # trte_rate = int(len(sample_list) * 0.9)
-    train_loader = DataLoader(
-        CoughDataset(audioseg=sample_list, labellist=label_list, noises=noise_list),
-        batch_size=64, shuffle=True)
-    for batch_id, (x_wav, y_lab) in tqdm(enumerate(train_loader),
-                                         desc="Training "):
-        x_wav = x_wav.unsqueeze(1)
-        print(x_wav.shape, y_lab.shape)
+    wav_fold()
+
+    # sample_list, label_list, noise_list = get_combined_data()
+    # # trte_rate = int(len(sample_list) * 0.9)
+    # train_loader = DataLoader(
+    #     CoughDataset(audioseg=sample_list, labellist=label_list, noises=noise_list),
+    #     batch_size=64, shuffle=True)
+    # for batch_id, (x_wav, y_lab) in tqdm(enumerate(train_loader),
+    #                                      desc="Training "):
+    #     x_wav = x_wav.unsqueeze(1)
+    #     print(x_wav.shape, y_lab.shape)

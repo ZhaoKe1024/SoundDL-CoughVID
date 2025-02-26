@@ -31,6 +31,7 @@ class SCDModel(nn.Module):
         super().__init__()
         self.vad_model = WSFNN(class_num=2)
         self.extractor = WSFNN(class_num=class_num, latent_dim=latent_dim)
+
         self.multi_event_length = multi_event_length
         self.event_dim = (latent_dim//2) // self.multi_event_length
         self.fuse_model = fuse_model

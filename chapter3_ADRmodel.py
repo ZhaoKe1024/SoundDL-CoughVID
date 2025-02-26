@@ -11,6 +11,7 @@ import random
 from tqdm import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
+from sklearn import metrics
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
@@ -23,18 +24,19 @@ from readers.noise_reader import load_bilinoise_dataset
 
 
 class CoughDataset(Dataset):
-    def __init__(self, audioseg, labellist, attri1_list, attri2_list, noises):
+    def __init__(self, audioseg, labellist, attri1_list, attri2_list, noises, mode="valid"):
         self.audioseg = audioseg
         self.labellist = labellist
         self.attri1list = attri1_list
         self.attri2list = attri2_list
         self.noises = noises
+        self.mode = mode
 
     def __getitem__(self, ind):
         # When reading waveform data, add noise as data enhancement according to a 1/3 probability.
-        if random.random() < 0.333:
-            return self.audioseg[ind] + self.noises[random.randint(0, len(self.noises) - 1)], self.labellist[ind], \
-                self.attri1list[ind], self.attri2list[ind]
+        if (self.mode == "train") and (random.random() < 0.333):
+            return self.audioseg[ind] + self.noises[random.randint(0, len(self.noises) - 1)], \
+                self.labellist[ind], self.attri1list[ind], self.attri2list[ind]
         else:
             return self.audioseg[ind], self.labellist[ind], self.attri1list[ind], self.attri2list[ind]
 
@@ -126,6 +128,14 @@ class AGEDR(nn.Module):
             print("part[recon] recon loss:{};".format(Loss_recon))
         return x_recon, z_mu, Loss_vae, Loss_attri, Loss_disen, Loss_cls
 
+    def predict(self, x_input):
+        x_recon, z_mu, _, _ = self.vae(x_input)  # [32, 1, 64, 128] [32, 30] [32, 30] [32, 30]
+        y_pred = self.classifier(z_mu)  # torch.Size([32, 2])
+        # if recon:
+        #     return y_pred, x_recon
+        # else:
+        return y_pred
+
 
 class ADRTrainer(object):
     def __init__(self, mode="train"):
@@ -166,6 +176,7 @@ class ADRTrainer(object):
             self.configs["fit"]["batch_size"],
             "0.333")
         self.save_setting_str += "epoch_num:{},\n".format(self.configs["fit"]["epochs"])
+        self.agedr = None
 
     def __build_dataloader(self):
         cvr = CoughVIDReader(data_length=32306)
@@ -174,18 +185,20 @@ class ADRTrainer(object):
         tmplist = list(zip(sample_list, label_list, atri1, atri2))
         random.shuffle(tmplist)
         sample_list, label_list, atri1, atri2 = zip(*tmplist)
-        trte_rate = int(0.9*len(sample_list)+1)
+        trte_rate = int(0.9 * len(sample_list) + 1)
         noise_list, _ = load_bilinoise_dataset(NOISE_ROOT="G:/DATAS-Medical/BILINOISE/", noise_length=cvr.data_length,
                                                number=100)
+        print("train data:{}. valid data:{}, noise data:{}".format(trte_rate, len(sample_list)-trte_rate, len(noise_list)))
+        assert (trte_rate > len(noise_list)) and (len(sample_list)-trte_rate > len(noise_list))
         self.train_loader = DataLoader(
             CoughDataset(audioseg=sample_list[:trte_rate], labellist=label_list[:trte_rate],
                          noises=noise_list, attri1_list=atri1[:trte_rate],
-                         attri2_list=atri2[trte_rate:]),
+                         attri2_list=atri2[:trte_rate], mode=self.mode),
             batch_size=64, shuffle=True)
-        self.train_loader = DataLoader(
+        self.valid_loader = DataLoader(
             CoughDataset(audioseg=sample_list[trte_rate:], labellist=label_list[trte_rate:],
                          noises=noise_list, attri1_list=atri1[trte_rate:],
-                         attri2_list=atri2[trte_rate:]),
+                         attri2_list=atri2[trte_rate:], mode="valid"),
             batch_size=64, shuffle=False)
 
     def __build_model(self):
@@ -313,18 +326,69 @@ class ADRTrainer(object):
                         raise Exception("x_recon is None.")
             pbar.update(n=1)
 
+    @staticmethod
+    def calculate_metrics(y_pred, y_lab):
+        precision = metrics.precision_score(y_true=y_lab, y_pred=y_pred)
+        recall = metrics.recall_score(y_true=y_lab, y_pred=y_pred)
+        accuracy = metrics.accuracy_score(y_true=y_lab, y_pred=y_pred)
+        return precision, recall, accuracy
+
     def valid(self):
-        self.__build_model()
         if self.mode == "valid":
+            if self.agedr is None:
+                self.__build_model()
             self.__load_checkpoint(self.save_dir + "202502251638/epoch30/epoch_30_agedr.pth")
+        self.agedr.eval()
+        print("======------Build Dataloader-------=========")
+        self.__build_dataloader()
+
+        tr_pred = None
+        tr_truth = None
+        for batch_id, (x_wav, y_lab, ctype, sevty) in enumerate(self.train_loader):
+            with torch.no_grad():
+                x_mel = self.wav2mel(x_wav.to(self.device)).unsqueeze(1)
+                y_pred = self.agedr.predict(x_input=x_mel)
+                y_pred = y_pred.argmax(axis=-1)
+            if tr_pred is None:
+                tr_pred = y_pred
+                tr_truth = y_lab
+            else:
+                tr_pred = torch.concat((tr_pred, y_pred), dim=-1)
+                tr_truth = torch.concat((tr_truth, y_lab), dim=-1)
+        tr_pred = tr_pred.data.cpu().numpy()
+        tr_truth = tr_truth.data.cpu().numpy()
+        pr, re, ac = self.calculate_metrics(y_pred=tr_pred, y_lab=tr_truth)
+        print("===========Train Dataset==============")
+        print("Precision:{}, Recall:{}, Accuracy:{}.".format(pr, re, ac))
+
+        te_pred = None
+        te_truth = None
+        for batch_id, (x_wav, y_lab, ctype, sevty) in enumerate(self.valid_loader):
+            with torch.no_grad():
+                x_mel = self.wav2mel(x_wav.to(self.device)).unsqueeze(1)
+                y_pred = self.agedr.predict(x_input=x_mel)
+                y_pred = y_pred.argmax(axis=-1)
+            if te_pred is None:
+                te_pred = y_pred
+                te_truth = y_lab
+            else:
+                te_pred = torch.concat((te_pred, y_pred), dim=-1)
+                te_truth = torch.concat((te_truth, y_lab), dim=-1)
+        te_pred = te_pred.data.cpu().numpy()
+        te_truth = te_truth.data.cpu().numpy()
+        pr, re, ac = self.calculate_metrics(y_pred=te_pred, y_lab=te_truth)
+        print("==============Valid Dataset===============")
+        print("Precision:{}, Recall:{}, Accuracy:{}.".format(pr, re, ac))
 
     def __load_checkpoint(self, pretrain_path):
         self.agedr.load_state_dict(state_dict=torch.load(f=pretrain_path))
 
 
 if __name__ == '__main__':
-    trainer = ADRTrainer()
-    trainer.train()
+    trainer = ADRTrainer(mode="valid")
+    # trainer.train()
+    trainer.valid()
+
     # cvr = CoughVIDReader(data_length=32306)
     # print(cvr.data_length)
     # sample_list, label_list, atri1, atri2 = cvr.get_sample_label_attris()
