@@ -153,6 +153,7 @@ class CSEDNN(nn.Module):
         return logits
 
 
+
 if __name__ == '__main__':
     wav = torch.rand(size=(64, 220500))
     model = CSEDNN(fuse_model="gnn")
