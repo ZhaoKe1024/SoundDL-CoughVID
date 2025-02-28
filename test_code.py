@@ -118,8 +118,26 @@ def wav_fold():
     print("series length:", series_length)
 
 
+def split_image():
+    from PIL import Image
+    img = np.array(Image.open("C:/Users/zhaoke/Documents/paper1/waveform/fullwaveform.png"))
+
+    print(img.shape)
+    st, step = 0, 260
+    cnt = 0
+    while st<2000:
+        tmp = img[:, st:st+step, :]
+        pil_img = Image.fromarray(tmp.astype(np.uint8))
+        pil_img.save("C:/Users/zhaoke/Documents/paper1/waveform/seg_{}.png".format(cnt))
+        st = st+step
+        cnt += 1
+        if cnt == 7:
+            break
+
+
 if __name__ == '__main__':
-    wav_fold()
+    split_image()
+    # wav_fold()
 
     # sample_list, label_list, noise_list = get_combined_data()
     # # trte_rate = int(len(sample_list) * 0.9)

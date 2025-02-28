@@ -229,3 +229,9 @@ class SimpleGCNLayer(nn.Module):
         out = torch.bmm(adj, out)  # (batch, num_nodes, out_channels)
 
         return out
+
+
+if __name__ == '__main__':
+    x_input = torch.rand(size=(32, 9, 512))
+    smha = SimpleSelfAttention(d_model=512, n_heads=4)
+    print(smha(x_input))

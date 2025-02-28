@@ -108,11 +108,11 @@ def SCDE2E_simulate_data(second=3, ):
 
 
 if __name__ == '__main__':
-    # SCDE2E_simulate_data(second=3)  # 26.0
-    # SCDE2E_simulate_data(second=4)  # 23.71428
+    SCDE2E_simulate_data(second=3)  # 26.0
+    SCDE2E_simulate_data(second=4)  # 23.71428
     SCDE2E_simulate_data(second=5)  # 24.0
-    # SCDE2E_simulate_data(second=6)  # 23.5454
-    # SCDE2E_simulate_data(second=7)  # 23.2307
+    SCDE2E_simulate_data(second=6)  # 23.5454
+    SCDE2E_simulate_data(second=7)  # 23.2307
 
     # encoder = Wav2Vec(pretrained=True)
     # print(encoder)
