@@ -6,6 +6,7 @@
 # @Software: PyCharm
 # import sys
 # sys.path.append(r'C:/Program Files (zk)/PythonFiles/AClassification/SoundDL-CoughVID')
+import os
 import random
 import numpy as np
 import librosa
@@ -212,18 +213,37 @@ class NEUCoughReader(object):
         return Segs_List, label_List
 
 
+def check_filelist():
+    ROOT = "G:/DATAS-Medical/NEUSOUNDDATA_1109-1116/"
+    wav_cnt = 0
+    par_cnt = 0
+    ctm_cnt = 0
+    for item in os.listdir(ROOT):
+        if item[-3:] == "wav":
+            print(item[:14])
+            wav_cnt += 1
+        elif item[-4:] == "json":
+            if item[:3] == "ctm":
+                ctm_cnt += 1
+            elif item[:4] == "test":
+                par_cnt += 1
+            else:
+                raise ValueError("Error Filename.")
+    print(wav_cnt, par_cnt, ctm_cnt)
+
 if __name__ == '__main__':
-    from torch.utils.data import DataLoader
-    from chapter2_SEDmodel import CoughDataset
-    from readers.noise_reader import load_bilinoise_dataset
+    # check_filelist()
+    # from torch.utils.data import DataLoader
+    # from chapter2_SEDmodel import CoughDataset
+    # from readers.noise_reader import load_bilinoise_dataset
     ncr = NEUCoughReader()
     sample_list, label_list = ncr.get_sample_label_list()
-    noise_list, _ = load_bilinoise_dataset(NOISE_ROOT="G:/DATAS-Medical/BILINOISE/", noise_length=ncr.data_length,
-                                           number=100)
-    train_loader = DataLoader(
-        CoughDataset(audioseg=sample_list, labellist=label_list, noises=noise_list),
-        batch_size=64, shuffle=True)
-    for batch_id, (x_wav, y_lab) in tqdm(enumerate(train_loader),
-                                         desc="Training "):
-        x_wav = x_wav.unsqueeze(1)
-        print(x_wav.shape, y_lab.shape)
+    # noise_list, _ = load_bilinoise_dataset(NOISE_ROOT="G:/DATAS-Medical/BILINOISE/", noise_length=ncr.data_length,
+    #                                        number=100)
+    # train_loader = DataLoader(
+    #     CoughDataset(audioseg=sample_list, labellist=label_list, noises=noise_list),
+    #     batch_size=64, shuffle=True)
+    # for batch_id, (x_wav, y_lab) in tqdm(enumerate(train_loader),
+    #                                      desc="Training "):
+    #     x_wav = x_wav.unsqueeze(1)
+    #     print(x_wav.shape, y_lab.shape)

@@ -4,9 +4,11 @@
 # @Author: ZhaoKe
 # @File : chapter2_SEDmodel.py
 # @Software: PyCharm
+import json
 import os
 import time
 import random
+
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
@@ -24,21 +26,21 @@ from models.tdnncnn import WSFNN
 def get_combined_data():
     print("Build the Dataset consisting of BiliCough, NeuCough, CoughVID19.")
     bcr = BiliCoughReader()
-    ncr = NEUCoughReader()
-    cvr = CoughVIDReader()
+    # ncr = NEUCoughReader()
+    # cvr = CoughVIDReader()
     sample_list, label_list = [], []
     tmp_sl, tmp_ll = bcr.get_sample_label_list(mode="sed")
     sample_list.extend(tmp_sl)
     label_list.extend(tmp_ll)
     print("bilicough:", len(label_list), bcr.data_length)
-    tmp_sl, tmp_ll = ncr.get_sample_label_list(mode="cough")
-    sample_list.extend(tmp_sl)
-    label_list.extend(tmp_ll)
-    print("bilicough+neucough:", len(label_list), ncr.data_length)
-    tmp_sl, tmp_ll = cvr.get_sample_label_list()
-    sample_list.extend(tmp_sl)
-    label_list.extend(tmp_ll)
-    print("bilicough+neucough+coughvid:", len(label_list), cvr.data_length)
+    # tmp_sl, tmp_ll = ncr.get_sample_label_list(mode="cough")
+    # sample_list.extend(tmp_sl)
+    # label_list.extend(tmp_ll)
+    # print("bilicough+neucough:", len(label_list), ncr.data_length)
+    # tmp_sl, tmp_ll = cvr.get_sample_label_list()
+    # sample_list.extend(tmp_sl)
+    # label_list.extend(tmp_ll)
+    # print("bilicough+neucough+coughvid:", len(label_list), cvr.data_length)
     # shuffle
     tmplist = list(zip(sample_list, label_list))
     random.shuffle(tmplist)
@@ -78,6 +80,14 @@ class SEDModel(nn.Module):
         return self.model(x=x)
 
 
+def get_m2l(name: str):
+    json_str = None  # json string
+    with open("./configs/ucaslabel.json", 'r', encoding='utf_8') as fp:
+        json_str = fp.read()
+    json_data = json.loads(json_str)
+    return json_data[name+"2label"], json_data["2label"+name]
+
+
 class Trainer2SED(object):
     def __init__(self):
         self.configs = {"batch_size": 32, "lr": 0.001, "epoch_num": 30}
@@ -86,8 +96,11 @@ class Trainer2SED(object):
             os.makedirs(self.save_dir, exist_ok=True)
         self.run_save_dir = self.save_dir + time.strftime("%Y%m%d%H%M", time.localtime()) + '/'
         self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-        self.sed_label2name = {0: "breathe", 1: "clearthroat", 2: "cough", 3: "exhale", 4: "hum", 5: "inhale",
-                               6: "sniff", 7: "speech", 8: "vomit", 9: "whooping"}
+        json_str = None  # json string
+        with open("../configs/ucaslabel.json", 'r', encoding='utf_8') as fp:
+            json_str = fp.read()
+        json_data = json.loads(json_str)
+        self.sed_label2name = json_data["label2event"]
         self.save_setting_str = "Model:{}, optimizer:{}, loss function:{}\n".format(
             "SEDModel(wav TDNN + mel CNN + pool + mlp)", "Adam(lr={})".format(self.configs["lr"]),
             "nn.CrossEntropyLoss")

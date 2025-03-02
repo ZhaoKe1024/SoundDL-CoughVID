@@ -16,15 +16,6 @@ def sec2hms(sec: int) -> str:
     return "{:02}:{:02}:{:02}".format(h, m, s)
 
 
-def ffmpeg_mp42wav():
-    ROOT = "G:/DATAS-Medical/BILINOISE/"
-    for item in os.listdir(ROOT):
-        if item[-3:] == "mp4":
-            name = item.split('.')[0]
-            print("ffmpeg -i {}.mp4 -f wav -ar 44100 {}.wav".format(ROOT + name, ROOT + name))
-            os.system("ffmpeg -i {}.mp4 -f wav -ar 44100 {}.wav".format(ROOT + name, ROOT + name))
-
-
 def ffmpeg_slicenoise():
     ROOT = "G:/DATAS-Medical/BILINOISE/"
     for item in os.listdir(ROOT):

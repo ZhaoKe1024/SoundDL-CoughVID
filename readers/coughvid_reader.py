@@ -225,7 +225,7 @@ class CoughVIDReader(object):
             else:
                 segs = [w_data]
             sample_list.extend(segs)
-            label_list.extend([2] * len(segs))
+            label_list.extend([1] * len(segs))
             line = fin.readline()
             pbar.update(1)
         fin.close()
@@ -244,7 +244,7 @@ class CoughVIDReader(object):
                 segs.append(w_data[st:st + self.data_length])
                 st = st + self.data_length - overlap
             if st + self.data_length - L < overlap:
-                segs.extend(self.__padding(w_data[st:]))
+                segs.append(w_data[L-self.data_length:])
             return segs
 
     def __padding(self, w_data, usenoise=False):
@@ -353,13 +353,15 @@ if __name__ == '__main__':
     # y, sr = librosa.load(ROOT+"sound0006_0733f882-d7fd-4dc5-a1b0-8aeec64fc112.wav")
     # print(len(y), sr)
     # add_column_age()
-    count_validdata()
+    # count_validdata()
 
     # from torch.utils.data import Dataset, DataLoader
     # from chapter2_SEDmodel import CoughDataset
     # from readers.noise_reader import load_bilinoise_dataset
     #
-    # cvr = CoughVIDReader(data_length=22050)
+    cvr = CoughVIDReader(data_length=22050)
+    sample_list, label_list = cvr.get_sample_label_list()
+    print(len(sample_list), sum(label_list))
     # sample_list, label_list, atr1, atr2 = cvr.get_sample_label_attris()
     # noise_list, _ = load_bilinoise_dataset(NOISE_ROOT="G:/DATAS-Medical/BILINOISE/", noise_length=cvr.data_length,
     #                                        number=100)
