@@ -17,7 +17,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from models.tdnncnn import WSFNN
-from modules.attentions import SimpleSelfAttention, SimpleGCNLayer
+from modules.attentions import MultiHeadAttention, SimpleGCNLayer
+from chapter2_SEDmodel import SEDModel
 
 
 def get_combined_batchs():
@@ -60,21 +61,36 @@ class SCDCoughDataset(Dataset):
 
 
 class SCDModel(nn.Module):
-    def __init__(self, class_num=10, seg_num=5, fuse_model="attn", cls_model="mlp", latent_dim=1024, hidden_dim=64):
+    def __init__(self, e_class_num=6, d_class_num=4, seg_num=5, fuse_model="attn", cls_model="mlp",
+                 latent_dim=1024, hidden_dim=64,
+                 vad_pretrain=False, sed_pretrain=False, freeze=True):
         super().__init__()
-        print("Build SCDModel, seg_num:{}, class_num:{}.".format(seg_num, class_num))
+        print("Build SCDModel, seg_num:{}, class_num:{}.".format(seg_num, e_class_num))
         self.vad_model = WSFNN(class_num=2)
-        self.extractor = WSFNN(class_num=class_num, latent_dim=latent_dim)
-
+        self.sed_model = SEDModel(class_num=e_class_num, latent_dim=latent_dim)
+        if vad_pretrain:
+            self.vad_model.load_state_dict(torch.load("./runs/c2vadmodel/202502141500/vad_model_epoch30.pth"))
+            self.vad_model.eval()
+            print("VAD Model is loaded.")
+        if sed_pretrain:
+            self.sed_model.load_state_dict(torch.load("./runs/c2sedmodel/202503041630/sed_model_epoch30.pth"))
+            self.sed_model.eval()
+            print("SED Model is loaded.")
+        self.freeze = freeze
         self.seg_num = seg_num
         self.event_dim = 512
         self.fuse_model = fuse_model
         self.fuse_layer = None
-        n_heads = 4
+        self.atten_mode = "full"  # ["full", "group"]
+        n_heads = 8
         if fuse_model == "attn":
-            self.fuse_layer = SimpleSelfAttention(d_model=self.event_dim, n_heads=n_heads)
+            self.fuse_layer = MultiHeadAttention(embed_dim=self.event_dim, n_heads=n_heads)
+            if self.atten_mode == "full":
+                self.event_attn_mask = 1 - torch.eye(self.seg_num)
+            print("Attention fusion is adopted.")
         elif fuse_model == "gnn":
             self.fuse_layer = SimpleGCNLayer(in_channels=self.event_dim, out_channels=hidden_dim)
+            print("GNN fusion is adopted.")
         else:
             raise ValueError("Unknown fused model:{}(at __init__()).".format(fuse_model))
         # 如果注意力要输出到 hidden_dim，可再加一层线性
@@ -87,10 +103,10 @@ class SCDModel(nn.Module):
         # adj = adj.fill_diagonal_(0)  # 如果不想要自环，可以这样做
         self.register_buffer('adj', adj)
 
-        print("Pooling after Fusioning the TDNN and CNN.")
+        print("Pooling after Fusing the TDNN and CNN.")
         self.pool = nn.MaxPool1d(kernel_size=4)
         # 最终分类器
-        self.classifier = nn.Linear(hidden_dim, class_num)
+        self.classifier = nn.Linear(hidden_dim, d_class_num)
         # 构造一个全连接层以便在两种模式下可以统一输出
         self.dropout = nn.Dropout(p=0.1)
 
@@ -99,21 +115,43 @@ class SCDModel(nn.Module):
         # pred_as, latent_as = self.vad_model(x, latent=True)
 
         # pred_sound_event, latent_vector(representation)
-        pred_se, latent_v = self.extractor(x_input, latent=True)  # _, (bs, 32, 2048)
-        latent_v = self.pool(latent_v.mean(dim=1))  # torch.Size([bs, 512])
-        # print("latent v:", latent_v.shape)
+        if self.freeze:
+            with torch.no_grad():
+                pred_vad, latent_vad = self.vad_model(x_input, latent=True)
+                vad_logits = pred_vad.argmax(axis=-1)
+                pred_se, latent_sed = self.sed_model(x_input, latent=True)  # _, (bs, 32, 2048)
+        else:
+            pred_vad, latent_vad = self.vad_model(x_input, latent=True)
+            vad_logits = pred_vad.argmax(axis=-1)
+            pred_se, latent_sed = self.sed_model(x_input, latent=True)  # _, (bs, 32, 2048)
+        print("pred_vad:{}, latent_vad:{}, vad_logits:{}, pred_se:{}, latent_v:{}.".format(pred_vad.shape, latent_vad.shape, vad_logits.shape, pred_se.shape, latent_sed.shape))
 
-        bs, v_dim = latent_v.shape
+        # pred_vad:torch.Size([64, 2]), latent_vad:torch.Size([64, 32, 2048]), vad_logits:torch.Size([64]), pred_se:torch.Size([64, 6]), latent_v:torch.Size([64, 32, 2048]).
+        # latent_vad = self.pool(latent_vad.mean(dim=1))
+        # bs, vad_ldim = latent_vad.shape
+        # pred_vad_mask = pred_vad.argmax(dim=-1)  # (bs*seg_num, 1)
+        # print("pred vad mask:", pred_vad_mask.shape)
+        # pred_vad_mask = pred_vad_mask.unsqueeze(1).repeat(1, vad_ldim).view(-1, self.seg_num, vad_ldim)  # (16, 5, 512)
+        # print("pred vad mask:", pred_vad_mask.shape)
+
+        latent_sed = self.pool(latent_sed.mean(dim=1))  # torch.Size([bs*seg_num, 512])
+        print("latent_sed after pooled:", latent_sed.shape)  # (bs*seg_num, 512)
+        bs, sed_ldim = latent_sed.shape
         # latent vector of multi-event vector
-        latent_me = latent_v.view(-1, self.seg_num, v_dim)
-        # print("latent_me:", latent_me.shape)
+        latent_sed = latent_sed.view(-1, self.seg_num, sed_ldim)  # (bs, seg_num, 512)
+        print("latent_me:", latent_sed.shape)
+
+        # latent_sed.masked_fill_(pred_vad_mask, -1e9)
+        # print("latent_sed after masked:", latent_sed.shape)
+        self.event_attn_mask = self.event_attn_mask.unsqueeze(0).repeat(bs//self.seg_num, 1, 1)
+
         if self.fuse_model == "attn":
-            out, attn_weights = self.fuse_layer(latent_me)
+            out, attn_weights = self.fuse_layer(input_Q=latent_sed, input_K=latent_sed, input_V=latent_sed, attn_mask=self.event_attn_mask)
             out = self.attention_fc(out)
             out = F.relu(out)
             out = out.mean(dim=1)
         elif self.fuse_model == "gnn":
-            out = self.fuse_layer(latent_me, self.adj)
+            out = self.fuse_layer(latent_sed, self.adj)
             out = F.relu(out)
             out = out.mean(dim=1)
         else:
@@ -198,11 +236,11 @@ class Trainer4SCD(object):
 
 
 if __name__ == '__main__':
-    trainer = Trainer4SCD(mode="valid")
-    trainer.valid()
-    # x = torch.rand(size=(64, 1, 22050))
-    # m1 = SCDModel(fuse_model="attn")
-    # print(m1(x).shape)
+    # trainer = Trainer4SCD(mode="valid", )
+    # trainer.valid()
+    x = torch.rand(size=(80, 1, 22050))
+    m1 = SCDModel(fuse_model="attn", e_class_num=6, d_class_num=4, vad_pretrain=True, sed_pretrain=True)
+    print(m1(x).shape)
     # print("=======================")
     # m2 = SCDModel(fuse_model="gnn")
     # print(m2(x).shape)

@@ -1,8 +1,8 @@
 {
   "vad2label": {"silence": 0, "activity": 1},
-
-  "disease2label": {"healthy": 0, "unknown": 0, "whooping": 1, "asthma": 2,
-                     "pneumonia": 3, "covid19": 3, "covid-19": 3, "COVID-19": 3, "COPD": 4},
+  "label2vad": {"0":  "silence", "1": "activity"},
+  "disease2label": {"healthy": 0, "unknown": -1, "whooping": 1, "asthma": 2,
+                     "pneumonia": 3, "covid19": 3, "covid-19": 3, "COVID-19": 3, "COPD": 4, "laryngitis":  5, "bronchitis": 6},
   "label2disease": {"0": "Healthy", "1": "Whooping", "2": "Asthma","3": "Pneumonia"},
 
   "event2label":{

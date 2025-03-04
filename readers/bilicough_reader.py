@@ -424,21 +424,35 @@ def ffmpeg_mp42wav(root_path):
             os.system("ffmpeg -i {}.mp4 -f wav -ar 22050 {}.wav".format(root_path + name, root_path + name))
 
 
-def generate_SCD_metainfo():
+def ffmpeg_mp42wav_list(kv_list):
+    ROOT = "G:/DATAS-Medical/BILIBILICOUGH/"
+    for (mp4name, wavname) in kv_list:
+        print("ffmpeg -i {}.mp4 -f wav -ar 22050 {}.wav".format(ROOT + mp4name, ROOT + wavname))
+        os.system("ffmpeg -i {}.mp4 -f wav -ar 22050 {}.wav".format(ROOT + mp4name, ROOT + wavname))
+
+
+def generate_SCD_metainfo(task="scd"):
     """在BiliCough中添加新的数据
     给定一条长音频，我手动在Aegisub软件中标注好ass文件，然后通过这个函数去简易地切分为目标长度的短片段"""
     root_path = "G:/DATAS-Medical/BILIBILICOUGH/"
     # scd_indices = [1, 4, 7, 8, 9, 10, 11, 14, 15, 20, 25, 28]
     # d_labels = ["whooping", "asthma", "pneumonia"]
-    d_dict = {"000": "healthy",
-              "001": "whooping", "003": "healthy", "004": "whooping", "007": "asthma", "008": "asthma",
-              "009": "pneumonia", "010": "whooping",
-              "011": "whooping",
-              "014": "whooping", "015": "asthma", "018": "whooping", "019": "healthy", "020": "pneumonia",
-              "021": "healthy",
-              "022": "healthy", "025": "COPD", "028": "whooping"
-              }
-    metainfo_file = open("G:/DATAS-Medical/BILIBILICOUGH/bilicough_metainfo_c4scd.csv", 'w')
+    if task == "scd":
+        d_dict = {"000": "healthy",
+                  "001": "whooping", "003": "healthy", "004": "whooping", "007": "asthma", "008": "asthma",
+                  "009": "pneumonia", "010": "whooping",
+                  "011": "whooping",
+                  "014": "whooping", "015": "asthma", "018": "whooping", "019": "healthy", "020": "pneumonia",
+                  "021": "healthy",
+                  "022": "healthy", "025": "COPD", "028": "whooping", "033": "", "037": "whooping", "038": "asthma"
+                  }
+        fname = "c4scd"
+    elif task == "sed":
+        d_dict = [("00" + str(it))[-3:] for it in range(39)]
+        fname = "c2sed"
+    else:
+        raise ValueError("Unknown task:{}.".format(task))
+    metainfo_file = open("G:/DATAS-Medical/BILIBILICOUGH/bilicough_metainfo_{}.csv".format(fname), 'w')
     metainfo_file.write("filename,st,en,disease,d_label,event,e_label\n")
     json_str = None  # json string
     with open("../configs/ucaslabel.json", 'r', encoding='utf_8') as fp:
@@ -449,10 +463,10 @@ def generate_SCD_metainfo():
     label_cnt0 = dict()
     label_cnt1 = dict()
     for key in d_dict:
-        fname = root_path + "bilicough_" + key
-        print("--------------->file name:", fname)
+        wname = root_path + "bilicough_" + key
+        print("--------------->file name:", wname)
         # wavtest = fname + ".wav"
-        asstest = fname + ".ass"
+        asstest = wname + ".ass"
 
         # label_names = ["breathe", "cough", "clearthroat", "exhale", "hum", "inhale", "noise", "silence", "sniff",
         #                "speech",
@@ -486,7 +500,7 @@ def generate_SCD_metainfo():
                 d_label = parts_tmp[1][:-1]
             elif len(parts_tmp) == 1:
                 e_label = parts_tmp[0]
-                d_label = "healthy"
+                d_label = "unknown"
             else:
                 raise ValueError("Error at parts[9].split...")
             if e_label in ["breathe", "wheeze"]:
@@ -526,21 +540,37 @@ def generate_SCD_metainfo():
     print("---------------=============----------------")
     for k, v in label_cnt1.items():
         print("key:{},\tcount:{}".format(k, v))
-    print("运行完毕，数据已写入到bilicough_metainfo.csv里面")
+    print("运行完毕，数据已写入到bilicough_metainfo_{}.csv里面".format(fname))
     metainfo_file.close()
 
 
 if __name__ == '__main__':
-    # generate_SCD_metainfo()
+    strlist = ["bilicough_031,,WET_COUGH_VS_DRY_COUGH_Hear_the_Difference,male,adult",
+               "bilicough_032,,Have_you_heard_this_cough_before,female,child",
+               "bilicough_033,,Types_of_Coughs_in_60_Sec,male,adult",
+               "bilicough_034,,Dry_cough_sound_effect,male,adult",
+               "bilicough_035,,Smokers_Coughing_SOUND_EFFECT-Unhealthy_Cough_Ungesund_Raucherhusten_SOUNDS,male,adult",
+               "bilicough_036,,Some_wet_and_barking_coughing",
+               "bilicough_037,,Whooping_Cough_in_an_Adult",
+               "bilicough_038,,asthma"]
+    kvlist = []
+    ind = 31
+    for stritem in strlist:
+        parts = stritem.split(',')
+        kvlist.append((parts[2], "bilicough_0{}".format(ind)))
+        ind += 1
+    ffmpeg_mp42wav_list(kvlist)
 
-    bcr = BiliCoughReader()
-    # ncr = NEUCoughReader()
-    # cvr = CoughVIDReader()
-    sample_list, label_list = [], []
-    tmp_sl, tmp_ll = bcr.get_sample_label_list(mode="sed")
-    sample_list.extend(tmp_sl)
-    label_list.extend(tmp_ll)
-    print("bilicough:", len(label_list), bcr.data_length)
+    # generate_SCD_metainfo(task="sed")
+
+    # bcr = BiliCoughReader()
+    # # ncr = NEUCoughReader()
+    # # cvr = CoughVIDReader()
+    # sample_list, label_list = [], []
+    # tmp_sl, tmp_ll = bcr.get_sample_label_list(mode="sed")
+    # sample_list.extend(tmp_sl)
+    # label_list.extend(tmp_ll)
+    # print("bilicough:", len(label_list), bcr.data_length)
 
     # add_the_disease_label()
     # get_filelist()

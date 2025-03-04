@@ -158,7 +158,7 @@ class CoughVIDReader(object):
         attri1_list = []
         attri2_list = []
         m2l0 = {"healthy": 0, "COVID-19": 1}
-        m2l1 = {"dry": 0, "wet": 2, "unknown": 1}
+        m2l1 = {"dry": 0, "wet": 2, "unknown": 1}  # dry or wet
         m2l2 = {"FALSE": 0, "TRUE": 1}
         fin = open(self.metapath, 'r')
         fin.readline()

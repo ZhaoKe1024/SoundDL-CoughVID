@@ -72,12 +72,12 @@ class CoughDataset(Dataset):
 
 
 class SEDModel(nn.Module):
-    def __init__(self, class_num=10):
+    def __init__(self, class_num=6, latent_dim=1024):
         super().__init__()
-        self.model = WSFNN(class_num=class_num)
+        self.model = WSFNN(class_num=class_num, latent_dim=latent_dim)
 
-    def forward(self, x):
-        return self.model(x=x)
+    def forward(self, x, latent=False):
+        return self.model(x=x, latent=latent)
 
 
 def get_m2l(name: str):
@@ -85,32 +85,36 @@ def get_m2l(name: str):
     with open("./configs/ucaslabel.json", 'r', encoding='utf_8') as fp:
         json_str = fp.read()
     json_data = json.loads(json_str)
-    return json_data[name+"2label"], json_data["2label"+name]
+    return json_data[name + "2label"], json_data["2label" + name]
 
 
 class Trainer2SED(object):
     def __init__(self):
-        self.configs = {"batch_size": 32, "lr": 0.001, "epoch_num": 30}
+        self.configs = {"batch_size": 32, "lr": 0.001, "epoch_num": 30, "loss": "focal_loss"}
         self.save_dir = "./runs/c2sedmodel/"
         if not os.path.exists(self.save_dir):
             os.makedirs(self.save_dir, exist_ok=True)
         self.run_save_dir = self.save_dir + time.strftime("%Y%m%d%H%M", time.localtime()) + '/'
         self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         json_str = None  # json string
-        with open("../configs/ucaslabel.json", 'r', encoding='utf_8') as fp:
+        with open("./configs/ucaslabel.json", 'r', encoding='utf_8') as fp:
             json_str = fp.read()
         json_data = json.loads(json_str)
         self.sed_label2name = json_data["label2event"]
         self.save_setting_str = "Model:{}, optimizer:{}, loss function:{}\n".format(
             "SEDModel(wav TDNN + mel CNN + pool + mlp)", "Adam(lr={})".format(self.configs["lr"]),
-            "nn.CrossEntropyLoss")
+            "nn.FocalLoss(class_num=6)")
         self.save_setting_str += "dataset:{}, batch_size:{}, noise_p:{}\n".format("BiliCough+BiliNoise",
                                                                                   self.configs["batch_size"], "0.333")
         self.save_setting_str += "epoch_num:{},\n".format(self.configs["epoch_num"])
 
     def __build_model(self):
-        self.model = SEDModel().to(self.device)
-        self.criterion = nn.CrossEntropyLoss().to(self.device)
+        self.model = SEDModel(class_num=6).to(self.device)
+        if self.configs["loss"] == "cross_entropy":
+            self.criterion = nn.CrossEntropyLoss().to(self.device)
+        elif self.configs["loss"] == "focal_loss":
+            from modules.loss import FocalLoss
+            self.criterion = FocalLoss(class_num=6)
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.configs["lr"])
 
     def __build_dataset(self):
@@ -145,7 +149,9 @@ class Trainer2SED(object):
                 y_pred = self.model(x=x_wav)
                 if not flag:
                     print("shape of pred:", y_pred.shape)
-                loss_v = self.criterion(input=y_pred, target=y_lab)
+                # crossentropy(input=y_pred, target=t_lab)
+                # focalloss(inputs=y_pred, targets=y_lab)
+                loss_v = self.criterion(y_pred, y_lab)
                 if not flag:
                     print("shape of loss_v:", loss_v.shape)
                     flag = True
@@ -208,45 +214,81 @@ class Trainer2SED(object):
         return vad_model
 
 
-def read_annotation(asspath: str, sedm2l: dict):
-    fin = open(asspath, 'r', encoding="ANSI")
+def min2sec(t: str):
+    parts = t.split(':')
+    res = float(parts[-1])
+    f = 60
+    for i in range(len(parts) - 1):
+        res += int(parts[len(parts) - 2 - i]) * f
+        f *= 60
+    return res
+
+
+def read_annotation(asspath: str):
+    import librosa
+    testwav, sr = librosa.load(asspath + ".wav")
+    N = len(testwav)
+    maxv = max(testwav)
+    seg_list, label_list = [], []
+    st, data_length, overlap = 0, int(sr), int(sr) // 2
+    print("test waveform length:{}, sr:{}, overlap:{}.".format(N, sr, overlap))
+
+    fin = open(asspath + ".ass", 'r', encoding="ANSI")
     line = fin.readline()
-    label_list = []
-    while line[:8] != "Dialogue":
+    while line[:8] != "[Events]":
         line = fin.readline()
+    fin.readline()
+    line = fin.readline()
     while line:
-        # print(line)
         parts = line.split(',')
-        lab_tmp = parts[9].strip()
-        if lab_tmp == "useless":
-            pass
+        parts_tmp = None
+        if '+' in parts[9]:
+            parts_tmp = parts[9].strip().split('+')[0]
         else:
-            label = None
-            # label_list.append(lab_tmp)
-            if lab_tmp[:3] == "hum":
-                label = lab_tmp[:3]
-            elif lab_tmp[:5] in ["cough", "noise", "sniff", "vomit"]:
-                label = lab_tmp[:5]
-            elif lab_tmp[:6] in ["inhale", "exhale", "speech"]:
-                label = lab_tmp[:6]
-            elif lab_tmp[:7] in ["breathe", "silence"]:
-                label = lab_tmp[:7]
-            elif lab_tmp[:8] in ["whooping"]:
-                label = lab_tmp[:8]
-            elif lab_tmp[:11] in ["clearthroat"]:
-                label = lab_tmp[:11]
-            else:
-                print(lab_tmp)
-                raise Exception("Unknown Class.")
-            label_list.append(sedm2l[label])
+            parts_tmp = parts[9].strip()
+        # print(parts_tmp)
+        if '_' in parts[9]:
+            parts_tmp = parts_tmp.split('_')[0]
+            parts_tmp = parts_tmp.split('(')
+        else:
+            parts_tmp = parts_tmp.split('(')
+        e_label, d_label = None, None
+        if len(parts_tmp) == 2:
+            e_label = parts_tmp[0]
+            d_label = parts_tmp[1][:-1]
+        elif len(parts_tmp) == 1:
+            e_label = parts_tmp[0]
+            d_label = "unknown"
+        else:
+            raise ValueError("Error at parts[9].split...")
+        if e_label in ["music", "useless", "hum", "vomit", "sniff", "clearthroat", "wheeze"]:
+            line = fin.readline()
+            continue
+        if e_label in ["breathe", "wheeze"]:
+            raise ValueError("Error key:{}".format(e_label))
+
+        st, en = min2sec(parts[1]), min2sec(parts[2])
+        seg = testwav[int(st * sr):int(en * sr) + 1]
+        # print("st:{}, en:{}, seg length:{}.".format(st, en, len(seg)))
+        st = 0
+        while st + data_length <= len(seg):
+            seg_list.append(seg[st:st + data_length])
+            label_list.append(e_label)
+            st = st + data_length - overlap
+        tmp = seg[-data_length:]
+        if len(tmp) < data_length:
+            tmp_wav = np.zeros(data_length)
+            st = (data_length - len(tmp)) // 2
+            tmp_wav[st:st + len(tmp)] = tmp
+            seg_list.append(tmp_wav)
+            label_list.append(e_label)
         line = fin.readline()
 
     # print(label_list)
-    return label_list
+    return seg_list, label_list
 
 
-def detection():
-    import librosa
+def detection(testwavname):
     from chapter2_VADmodel import VADModel
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     vad_model = VADModel()
@@ -254,31 +296,27 @@ def detection():
     vad_model.to(device)
     vad_model.eval()
     print("load VAD model.")
-    sed_model = SEDModel()
-    sed_model.load_state_dict(torch.load("./runs/c2sedmodel/202502161815/sed_model_epoch30.pth"))
+    sed_model = SEDModel(class_num=6)
+    sed_model.load_state_dict(torch.load("./runs/c2sedmodel/202503041630/sed_model_epoch30.pth"))
     sed_model.to(device)
     sed_model.eval()
     print("load SED model.")
 
+    json_str = None  # json string
+    with open("./configs/ucaslabel.json", 'r', encoding='utf_8') as fp:
+        json_str = fp.read()
+    json_data = json.loads(json_str)
+    vad_label2name = json_data["label2vad"]
+    sed_label2name = json_data["label2event"]
+    # vad_name2label = json_data["event2label"]
+
     WAVE_ROOT = "G:/DATAS-Medical/BILIBILICOUGH/"
-    testwav, sr = librosa.load(WAVE_ROOT + "bilicough_009.wav")
-    N = len(testwav)
-    maxv = max(testwav)
-    seg_list = []
-    st, step, overlap = 0, 22050, 22050 // 3
-    while st + step <= N:
-        seg_list.append(testwav[st:st + step])
-        st = st + step - overlap
-    tmp = testwav[st:]
-    new_tmp = np.zeros(step)
-    st = (step - len(tmp)) // 2
-    new_tmp[st:st + len(tmp)] = tmp
-    seg_list.append(new_tmp)
-    print(len(seg_list))
-
+    # read_annotation(asspath=WAVE_ROOT + "bilicough_010")
+    seg_list, label_list = read_annotation(asspath=WAVE_ROOT + testwavname)
+    print("seg and label:", len(seg_list), len(label_list))
     seg_list = [torch.from_numpy(it) for it in seg_list]
-
-    batch_size = 32
+    # ========================================================
+    batch_size = 16
     x_batchs = []
     ind = 0
     while ind + batch_size < len(seg_list):
@@ -286,6 +324,7 @@ def detection():
         ind += batch_size
     x_batchs.append(torch.stack(seg_list[ind:], dim=0))
     print("batch num:{}, batch shape:{}".format(len(x_batchs), x_batchs[0].shape))
+    print([len(it) for it in x_batchs])
 
     vad_pred_list = None
     for batch_id, x_wav in enumerate(x_batchs):
@@ -297,70 +336,78 @@ def detection():
                 vad_pred_list = torch.concat((vad_pred_list, y_pred), dim=0)
     vad_pred_list = np.argmax(vad_pred_list.data.cpu().numpy(), axis=1)
     print("VAD prediction:", vad_pred_list)
+    vad_truth = [1] * len(label_list)
+    for it in range(len(label_list)):
+        if label_list[it] in ["silence", "noise"]:
+            vad_truth[it] = 0
+
+    print("truth and pred:", len(vad_truth), len(vad_pred_list))
+    from sklearn import metrics
+    precision = metrics.precision_score(y_true=vad_truth, y_pred=vad_pred_list)
+    recall = metrics.recall_score(y_true=vad_truth, y_pred=vad_pred_list)
+    acc = metrics.accuracy_score(y_true=vad_truth, y_pred=vad_pred_list)
+    # print(precision(pred=vad_pred_list, target=vad_truth))
+    print("precision:{}, recall:{}, accuracy:{}".format(precision, recall, acc))
+
+    # =====================================================================================
 
     sound_events = []
-    indices = []
+    sound_indices = []
+    event_labels = []
+    m2l = json_data["event2label"]
     for i in range(len(vad_pred_list)):
         if vad_pred_list[i] > 0.5:
-            indices.append(i)
+            sound_indices.append(i)
             sound_events.append(seg_list[i])
-    print("sound event indicex:", indices)
-    # print(sound_events)
+            event_labels.append(m2l[label_list[i]])
 
-    batch_size = 32
+    batch_size = 16
     x_batchs = []
-    ind = 0
-    while ind + batch_size < len(sound_events):
-        x_batchs.append(torch.stack(sound_events[ind:ind + batch_size], dim=0))
-        ind += batch_size
-    x_batchs.append(torch.stack(sound_events[ind:], dim=0))
-    print("batch num:{}, batch shape:{}".format(len(x_batchs), x_batchs[0].shape))
-    pred_list = None
-    for batch_id, x_wav in enumerate(x_batchs):
+    sed_pred_list = []
+    for x_wav in sound_events:
         with torch.no_grad():
-            y_pred = sed_model(x=x_wav.to(device).unsqueeze(1).to(torch.float32))
-            if pred_list is None:
-                pred_list = y_pred
-            else:
-                pred_list = torch.concat((pred_list, y_pred), dim=0)
-    pred_list = np.argmax(pred_list.data.cpu().numpy(), axis=1)
-    print(pred_list)
+            y_pred = sed_model(x=x_wav.to(device).unsqueeze(0).unsqueeze(1).to(torch.float32))
+            sed_pred_list.append(np.argmax(y_pred.data.cpu().numpy()))
+    print(sed_pred_list)
+    precision = metrics.precision_score(y_true=event_labels, y_pred=sed_pred_list, average="micro")
+    recall = metrics.recall_score(y_true=event_labels, y_pred=sed_pred_list, average="micro")
+    acc = metrics.accuracy_score(y_true=event_labels, y_pred=sed_pred_list)
+    # print(precision(pred=vad_pred_list, target=vad_truth))
+    print("precision:{}, recall:{}, accuracy:{}".format(precision, recall, acc))
 
-    sed_label2name = {0: "breathe", 1: "clearthroat", 2: "cough", 3: "exhale", 4: "hum", 5: "inhale",
-                      6: "sniff", 7: "speech", 8: "vomit", 9: "whooping", -1: "--"}
-    vad_name2labbel = {"breathe": 0, "clearthroat": 1, "cough": 2, "exhale": 3, "hum": 4, "inhale": 5,
-                       "noise": 6, "silence": 7, "sniff": 8, "speech": 9, "vomit": 10, "whooping": 11}
-
-    vad_label2name = {0: "breathe", 1: "clearthroat", 2: "cough", 3: "exhale", 4: "hum", 5: "inhale",
-                      6: "noise", 7: "silence", 8: "sniff", 9: "speech", 10: "vomit", 11: "whooping"}
-    result = [7] * len(vad_pred_list)
-    for ind in range(len(indices)):
-        if pred_list[ind] > 5:
-            result[indices[ind]] = pred_list[ind] + 2
-        else:
-            result[indices[ind]] = pred_list[ind]
-    # print([vad_label2name[it] for it in result])
-
-    result_squeezed = []
-    it = result[0]
-    ind = 1
-    while ind < len(result):
-        if result[ind] != it:
-            result_squeezed.append(it)
-            it = result[ind]
-        ind += 1
-    print(result_squeezed)
-    print([vad_label2name[it] for it in result_squeezed])
-
-    print("groundtruth:")
-    print(read_annotation(asspath=WAVE_ROOT + "bilicough_010.ass", sedm2l=vad_name2labbel))
+    """
+    ---->bilicough_037:
+    when (noise:0, silence:6)
+    vad:precision:1.0, recall:0.9402985074626866, accuracy:0.9402985074626866
+    sed:precision:0.7142857142857143, recall:0.7142857142857143, accuracy:0.7142857142857143
+    when (noise, silence:0)
+    precision:1.0, recall:0.9402985074626866, accuracy:0.9402985074626866
+    precision:0.7142857142857143, recall:0.7142857142857143, accuracy:0.7142857142857143
+    
+    ---->bilicough_020:
+    when (noise:0, silence:6)
+    precision:1.0, recall:0.9392712550607287, accuracy:0.9418604651162791
+    precision:0.7887931034482759, recall:0.7887931034482759, accuracy:0.7887931034482759
+    when (noise silence:0)
+    precision:0.8103448275862069, recall:0.9543147208121827, accuracy:0.7945736434108527
+    precision:0.7887931034482759, recall:0.7887931034482759, accuracy:0.7887931034482759
+    
+    model 20250304
+    precision:0.7974137931034483, recall:0.7974137931034483, accuracy:0.7974137931034483
+    """
 
 
 if __name__ == '__main__':
-    trainer = Trainer2SED()
-    trainer.train()
+    # trainer = Trainer2SED()
+    # trainer.train()
+
+    # WAVE_ROOT = "G:/DATAS-Medical/BILIBILICOUGH/"
+    # seg_list, ass_list = read_annotation(asspath=WAVE_ROOT + "bilicough_029")
+    # for i in range(len(seg_list)):
+    #     print(len(seg_list[i]), ass_list[i])
+
     # preprocessing_show()
-    # detection()
+    detection(testwavname="bilicough_020")
     # sed_label2name = {0: "breathe", 1: "clearthroat", 2: "cough", 3: "exhale", 4: "hum", 5: "inhale",
     #                   6: "sniff", 7: "speech", 8: "vomit", 9: "whooping"}
     # vad_name2labbel = {"breathe": 0, "clearthroat": 1, "cough": 2, "exhale": 3, "hum": 4, "inhale": 5,
