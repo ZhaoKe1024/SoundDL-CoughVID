@@ -108,15 +108,80 @@ class BiliCoughReader(object):
         else:
             raise Exception("Unknown param event: {} !!!!".format(mode))
 
-    def get_multi_event_batches(self):
+    def get_multi_event_batches(self, filepath):
         json_str = None  # json string
-        with open("../datasets/metainfo4scd.json", 'r', encoding='utf_8') as fp:
+        if filepath is None:
+            filepath = "../datasets/metainfo4scd.json"
+        with open(filepath, 'r', encoding='utf_8') as fp:
             json_str = fp.read()
         json_data = json.loads(json_str)
         segments, labels = [], []
-        for key in json_data:
+        y, sr = None, None
+        yname = None
+        yn1, sr = librosa.load("G:/DATAS-Medical/BILINOISE/bilinoise_01.wav")
+        yn2, sr = librosa.load("G:/DATAS-Medical/BILINOISE/bilinoise_02.wav")
+        for key in tqdm(json_data, desc="Loading.."):
+            # for key in json_data:
+            fname = json_data[key]["filename"]
+            if (yname is None) or (fname != yname):
+                yname = fname + ".wav"
+                y, sr = librosa.load("G:/DATAS-Medical/BILIBILICOUGH/" + yname)
             item_segs = json_data[key]["segments"]
-            print(key, ":", json_data[key]["labels"])
+
+            st, en = json_data[key]["start"], None
+            nfile, nst, nen = None, None, None
+            if item_segs[-1]["filename"][:9] == "bilinoise":
+                # st =
+                en = item_segs[-2]["en"]
+            else:
+                # st = json_data[key]["start"]
+                en = json_data[key]["end"]
+            if type(st) == str:
+                st = s2p(st)
+            if type(en) == str:
+                en = s2p(en)
+            # print(st, type(st), en, type(en))
+            seg, label = y[st:en], json_data[key]["labels"]
+
+            if item_segs[-1]["filename"][:9] == "bilinoise":
+                # print("add noise!")
+                nfile = item_segs[-1]["filename"]
+                nst, nen = item_segs[-1]["st"], item_segs[-1]["en"]
+                # print("nfile:", nfile)
+                if type(nst) == str:
+                    nst = s2p(nst)
+                if type(nen) == str:
+                    nen = s2p(nen)
+                # print(nen, type(nen), nst, type(nst), en, type(en), st, type(st))
+                seglen = nen-nst+len(seg)  # 这里nen-nst+len(seg)和nen-nst+en-st的结果不同！可见seg本身可能长度就不够的。
+                # print(seglen)
+                if seglen < 66150:
+                    # print("Error!!!!!")
+                    nen += 66150 - seglen
+                if nfile == "bilinoise_01.wav":
+                    yn = yn1[nst:nen]
+                    # print("seg, len:", len(seg), len(yn))
+                    seg = np.concatenate((seg, yn), axis=0)
+                    # print("seg:", len(seg))
+                elif nfile == "bilinoise_02.wav":
+                    yn = yn2[nst:nen]
+                    # print("seg, len:", len(seg), len(yn))
+                    seg = np.concatenate((seg, yn), axis=0)
+                    # print("seg:", len(seg))
+                else:
+                    raise ValueError("Unknown Noise Filename.")
+
+            if len(seg) != 22050 * 3:
+                errer_massage = "Error Length:"+str(len(seg))+","+fname
+                errer_massage += ", isnoised:"+str(item_segs[-1]["filename"][:9])
+                errer_massage += ", en:{}, st:{}, {}, nen:{}, nst:{}".format(en, st, en-st, nen, nst)
+                if nen is not None:
+                    errer_massage += ", "+str(nen-nst)
+                raise ValueError(errer_massage)
+            segments.append(seg)
+            labels.append(label)
+        return segments, labels
+            # print(key, ":", fname, st, en, nfile, nst, nen)
 
     def __get_sed_data(self):
         metadf = pd.read_csv(self.ROOT + "bilicough_metainfo_c4scd.csv", delimiter=',', header=0, index_col=None,

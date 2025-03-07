@@ -43,19 +43,26 @@ def simulate_data():
 
 
 class SCDCoughDataset(Dataset):
-    def __init__(self, audioseg, labellist, noises, mode="valid"):
+    def __init__(self, audioseg, labellist, noises, mode="valid", seg_num=5):
         self.audioseg = audioseg
         self.labellist = labellist
         self.noises = noises
         self.mode = mode
+        self.seg_num = seg_num
 
     def __getitem__(self, ind):
         # When reading waveform data, add noise as data enhancement according to a 1/3 probability.
-        if (self.mode == "train") and (random.random() < 0.333):
-            return self.audioseg[ind] + self.noises[random.randint(0, len(self.noises) - 1)], \
-                self.labellist[ind]
-        else:
-            return self.audioseg[ind], self.labellist[ind]
+        curbatch = self.audioseg[ind]
+        cur_list = []
+        for i in range(self.seg_num):
+            if (self.mode == "train") and (random.random() < 0.333):
+                cur_list.append(torch.from_numpy(
+                    curbatch[i * 11025:i * 11025 + 22050] + self.noises[random.randint(0, len(self.noises) - 1)]))
+            else:
+                cur_list.append(torch.from_numpy(curbatch[i * 11025:i * 11025 + 22050]))
+        return torch.stack(cur_list, dim=0), self.labellist[ind]
+        # else:
+        #     return torch.stack(cur_list, dim=0), self.labellist[ind]
 
     def __len__(self):
         return len(self.audioseg)
@@ -125,7 +132,11 @@ class SCDModel(nn.Module):
             pred_vad, latent_vad = self.vad_model(x_input, latent=True)
             vad_logits = pred_vad.argmax(axis=-1)
             pred_se, latent_sed = self.sed_model(x_input, latent=True)  # _, (bs, 32, 2048)
-        print("pred_vad:{}, latent_vad:{}, vad_logits:{}, pred_se:{}, latent_v:{}.".format(pred_vad.shape, latent_vad.shape, vad_logits.shape, pred_se.shape, latent_sed.shape))
+        # print("pred_vad:{}, latent_vad:{}, vad_logits:{}, pred_se:{}, latent_v:{}.".format(pred_vad.shape,
+        #                                                                                    latent_vad.shape,
+        #                                                                                    vad_logits.shape,
+        #                                                                                    pred_se.shape,
+        #                                                                                    latent_sed.shape))
 
         # pred_vad:torch.Size([64, 2]), latent_vad:torch.Size([64, 32, 2048]), vad_logits:torch.Size([64]), pred_se:torch.Size([64, 6]), latent_v:torch.Size([64, 32, 2048]).
         # latent_vad = self.pool(latent_vad.mean(dim=1))
@@ -136,30 +147,33 @@ class SCDModel(nn.Module):
         # print("pred vad mask:", pred_vad_mask.shape)
 
         latent_sed = self.pool(latent_sed.mean(dim=1))  # torch.Size([bs*seg_num, 512])
-        print("latent_sed after pooled:", latent_sed.shape)  # (bs*seg_num, 512)
+        # print("latent_sed after pooled:", latent_sed.shape)  # (bs*seg_num, 512)
         bs, sed_ldim = latent_sed.shape
         # latent vector of multi-event vector
         latent_sed = latent_sed.view(-1, self.seg_num, sed_ldim)  # (bs, seg_num, 512)
-        print("latent_me:", latent_sed.shape)
+        # print("latent_me:", latent_sed.shape)
 
         # latent_sed.masked_fill_(pred_vad_mask, -1e9)
         # print("latent_sed after masked:", latent_sed.shape)
-        self.event_attn_mask = self.event_attn_mask.unsqueeze(0).repeat(bs//self.seg_num, 1, 1)
+        self.event_attn_mask = self.event_attn_mask.unsqueeze(0).repeat(bs // self.seg_num, 1, 1)
 
         if self.fuse_model == "attn":
-            out, attn_weights = self.fuse_layer(input_Q=latent_sed, input_K=latent_sed, input_V=latent_sed, attn_mask=self.event_attn_mask)
+            out, attn_weights = self.fuse_layer(input_Q=latent_sed, input_K=latent_sed, input_V=latent_sed,
+                                                attn_mask=self.event_attn_mask)
             out = self.attention_fc(out)
             out = F.relu(out)
+            # print("out:", out.shape)
             out = out.mean(dim=1)
         elif self.fuse_model == "gnn":
             out = self.fuse_layer(latent_sed, self.adj)
             out = F.relu(out)
+            # print("out:", out.shape)
             out = out.mean(dim=1)
         else:
             raise ValueError("Unknown fused model:{}(at forward().).".format(self.fuse_model))
-        print("out shape:", out.shape)
+        # print("out shape:", out.shape)
         out = self.dropout(out)
-        print("out shape:", out.shape)
+        # print("out shape:", out.shape)
         logits = self.classifier(out)
         return logits
 
@@ -172,7 +186,7 @@ class Trainer4SCD(object):
         # class_num: cold, asthma, pneumonia, whooping, bronchitis(COPD, bronchiolitis)
         self.configs = {"batch_size": len(self.sed_label2name) * (64 // len(self.sed_label2name)),
                         "lr": 0.001, "epoch_num": 30,
-                        "data": {"series_second": 5, "sr": 22050, "overlap": 11025, "seg_num": 9},
+                        "data": {"series_second": 3, "sr": 22050, "overlap": 11025, "seg_num": 5},
                         "model": {"class_num": 5}
                         }
         self.save_dir = "./runs/c2scdmodel/"
@@ -182,13 +196,21 @@ class Trainer4SCD(object):
         self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
     def __build_dataloader(self):
-        self.train_loader = None
-        test_wav, test_label = simulate_data()
-        self.valid_loader = DataLoader(SCDCoughDataset(audioseg=test_wav, labellist=test_label, noises=[], mode="valid"), batch_size=32*self.configs["data"]["seg_num"])
+        print("Build the Dataset consisting of BiliCough, NeuCough, CoughVID19.")
+        bcr = BiliCoughReader()
+        # ncr = NEUCoughReader()
+        # cvr = CoughVIDReader()
+        segments, labels = bcr.get_multi_event_batches("./datasets/metainfo4scd.json")
+        self.train_loader = DataLoader(SCDCoughDataset(audioseg=segments, labellist=labels, noises=[], mode="valid",
+                                                       seg_num=self.configs["data"]["seg_num"]),
+                                       batch_size=32 * self.configs["data"]["seg_num"])
+        # test_wav, test_label = simulate_data()
+        # self.valid_loader = DataLoader(SCDCoughDataset(audioseg=test_wav, labellist=test_label, noises=[], mode="valid"), batch_size=32*self.configs["data"]["seg_num"])
 
     def __build_models(self):
-        self.model = SCDModel(seg_num=self.configs["data"]["seg_num"], class_num=self.configs["model"]["class_num"],
-                              fuse_model="attn").to(self.device)
+        self.model = SCDModel(seg_num=self.configs["data"]["seg_num"], e_class_num=6, d_class_num=4, fuse_model="attn",
+                              cls_model="mlp", latent_dim=1024, hidden_dim=64, vad_pretrain=False, sed_pretrain=False,
+                              freeze=True, usernn=False).to(self.device)
         self.criterion = nn.CrossEntropyLoss().to(self.device)
         if self.mode == "train":
             self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.configs["lr"])
@@ -203,11 +225,12 @@ class Trainer4SCD(object):
         for epoch_id in range(self.configs["epoch_num"]):
             pbar.set_description(desc="Epoch {}:".format(epoch_id))
             for batch_id, (x_wav, y_lab) in enumerate(self.train_loader):
-                x_wav = x_wav.to(self.device).float()
+                x_wav = x_wav.view(-1, self.configs["data"]["sr"]).to(self.device).float()
                 y_lab = y_lab.to(self.device).long()
                 self.optimizer.zero_grad()
                 y_pred = self.model(x_input=x_wav)
                 loss_v = self.criterion(input=y_pred, target=y_lab)
+                print(x_wav.shape, y_lab.shape, y_pred.shape, loss_v.item())
                 loss_v.backward()
                 self.optimizer.step()
 
@@ -221,12 +244,12 @@ class Trainer4SCD(object):
         flag = True
         for epoch_id in range(self.configs["epoch_num"]):
             pbar.set_description(desc="Valid Epoch {}:".format(epoch_id))
-            for batch_id, (x_wav, y_lab) in enumerate(self.valid_loader):
+            for batch_id, (x_wav, y_lab) in enumerate(self.train_loader):
                 x_wav = x_wav.to(self.device).unsqueeze(1).float()
                 y_lab = y_lab.to(self.device).long()
                 if flag:
                     print(x_wav.shape, y_lab.shape)
-                # self.optimizer.zero_grad()
+                self.optimizer.zero_grad()
                 y_pred = self.model(x_input=x_wav)
                 if flag:
                     print(y_pred.shape)
@@ -238,11 +261,26 @@ class Trainer4SCD(object):
 
 
 if __name__ == '__main__':
-    # trainer = Trainer4SCD(mode="valid", )
+    trainer = Trainer4SCD(mode="valid", )
+    trainer.train()
+
+    # seg_nums = []
+    # labels = []
+    # for i in range(32):
+    #     seg_nums.append(np.random.rand(66150))
+    #     labels.append(np.random.randint(0, 4))
+    # dataset = SCDCoughDataset(audioseg=seg_nums, labellist=labels, noises=[], mode="valid", seg_num=5)
+    # loader = DataLoader(SCDCoughDataset(audioseg=seg_nums, labellist=labels, noises=[], mode="valid",
+    #                                     seg_num=5), batch_size=8)
+    # for ind, (xwav, xlab) in enumerate(loader):
+    #     bs, l, dim = xwav.shape
+    #     print(xwav.view(-1, dim).shape, xlab.shape)
+
     # trainer.valid()
-    x = torch.rand(size=(80, 1, 22050))
-    m1 = SCDModel(fuse_model="attn", e_class_num=6, d_class_num=4, vad_pretrain=True, sed_pretrain=True)
-    print(m1(x).shape)
+
+    # x = torch.rand(size=(80, 1, 22050))
+    # m1 = SCDModel(fuse_model="attn", e_class_num=6, d_class_num=4, vad_pretrain=True, sed_pretrain=True)
+    # print(m1(x).shape)
     # print("=======================")
     # m2 = SCDModel(fuse_model="gnn")
     # print(m2(x).shape)
