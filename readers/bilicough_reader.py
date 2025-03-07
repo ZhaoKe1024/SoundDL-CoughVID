@@ -3,10 +3,12 @@
 # @Time : 2025-02-15 1:25
 import json
 import os
+import random
 
 import numpy as np
 import pandas as pd
 import librosa
+from tqdm import tqdm
 
 
 def min2sec(t: str):
@@ -19,8 +21,44 @@ def min2sec(t: str):
     return res
 
 
+def min2sec1(t: str) -> float:
+    """将"MM:ss.ss"格式的时间字符串转换为总秒数（浮点数）。"""
+    minutes_str, seconds_str = t.split(':')
+    minutes = int(minutes_str)
+    seconds = float(seconds_str)
+    return minutes * 60 + seconds
+
+
+def sec2min(f: float) -> str:
+    """将总秒数（浮点数）转换为"MM:ss.ss"格式的时间字符串，支持负数。"""
+    sign = -1 if f < 0 else 1
+    f_abs = abs(f)
+    minutes = int(f_abs // 60)
+    seconds = f_abs % 60
+    # 四舍五入到两位小数并处理进位
+    seconds_rounded = round(seconds, 2)
+    if seconds_rounded >= 60:
+        minutes += 1
+        seconds_rounded -= 60
+    # 格式化为两位整数分钟和两位整数+两位小数秒
+    minutes_str = f"{minutes:02d}"
+    seconds_str = f"{seconds_rounded:05.2f}"  # 例如 5.5 → 05.50
+    time_str = f"{minutes_str}:{seconds_str}"
+    return f"-{time_str}" if sign < 0 else time_str
+
+
+def s2p(sec):
+    return int(min2sec1(sec) * 22050)
+
+
+def subtract(t1: str, t2: str) -> str:
+    """计算两个时间字符串的差值，返回"MM:ss.ss"格式的结果。"""
+    diff = min2sec1(t1) - min2sec1(t2)
+    return sec2min(diff)
+
+
 class BiliCoughReader(object):
-    def __init__(self, ROOT="G:/DATAS-Medical/BILIBILICOUGH/"):
+    def __init__(self, ROOT="G:/DATAS-Medical/BILIBILICOUGH/", task="scd"):
         self.ROOT = ROOT
         # metadf = pd.read_csv(ROOT + "bilicough_metainfo.csv", delimiter=',', header=0,
         #                      index_col=None, encoding="ansi")
@@ -37,6 +75,23 @@ class BiliCoughReader(object):
         # self.vad_name2label = {"silence or noise": 0, "sound activity": 1}
         self.vad_label2name = {0: "silence or noise", 1: "sound activity"}
 
+        # ==========---------scd------------============
+        self.NOISE_ROOT = "G:/DATAS-Medical/BILINOISE/"
+        filter_length = 25
+        self.noise_files = ["bilinoise_01.wav", "bilinoise_02.wav"]
+        self.noise_length = [20638720, 39693293]
+        # for item in os.listdir(self.NOISE_ROOT):
+        #     if item[-4:] == ".wav" and len(item) >= filter_length:
+        #         self.noise_files.append(item)
+        if task == "scd_generate":
+            self.scdfile_path = "G:/DATAS-Medical/BILIBILICOUGH/bilicough_metainfo_c4scd_250307_dura.csv"
+            self.scd_df = pd.read_csv(self.scdfile_path, delimiter=',', header=0, index_col=0,
+                                      usecols=[0, 1, 2, 3, 5], encoding="ansi")
+            self.target_samples = int(3.0 * 22050)
+            self.gap_threshold = int(1.5 * 22050)
+            self.sequences = []
+            self.current_seq = None
+
     def get_sample_label_list(self, mode):
         """The Only Function to be Called.
         event:
@@ -52,6 +107,16 @@ class BiliCoughReader(object):
             return self.get_multi_event_batches()
         else:
             raise Exception("Unknown param event: {} !!!!".format(mode))
+
+    def get_multi_event_batches(self):
+        json_str = None  # json string
+        with open("../datasets/metainfo4scd.json", 'r', encoding='utf_8') as fp:
+            json_str = fp.read()
+        json_data = json.loads(json_str)
+        segments, labels = [], []
+        for key in json_data:
+            item_segs = json_data[key]["segments"]
+            print(key, ":", json_data[key]["labels"])
 
     def __get_sed_data(self):
         metadf = pd.read_csv(self.ROOT + "bilicough_metainfo_c4scd.csv", delimiter=',', header=0, index_col=None,
@@ -268,104 +333,139 @@ class BiliCoughReader(object):
         self.data_length = data_length
         return sample_list, label_list
 
-    def get_multi_event_batches(self):
-        # 还没给疾病标签标完呢！
-        metadf = pd.read_csv(self.ROOT + "bilicough_metainfo.csv", delimiter=',', header=0, index_col=None,
-                             usecols=[0, 1, 2, 5], encoding="ansi")
-        print(metadf)
-        cur_fname = None
-        cur_wav = None
-        data_length = None
-        sample_list = []
-        label_list = []
+    def __add_noise_segment(self, remaining_duration: float) -> dict:
+        """添加噪音片段"""
+        # 随机选择噪音文件并加载（此处需要实现实际音频加载逻辑）
+        noise_id = np.random.randint(1, 2)
+        # 假设实现获取指定时长的噪音片段的逻辑
+        y, sr = librosa.load(self.NOISE_ROOT + self.noise_files[noise_id])
+        st = random.randint(0, self.noise_length[noise_id] - int(remaining_duration))
 
-        sr_list = []
-        pre_st, pre_en = None, None
-        sr = None
-        # filename	st	en	labelfull	labelname	label	binlab
-        for ind, item in enumerate(metadf.itertuples()):
-            if (cur_fname != item[1]) or (cur_fname is None):
-                cur_fname = item[1]
-                cur_wav, sr = librosa.load(self.ROOT + cur_fname + ".wav")
-                if sr not in sr_list:
-                    sr_list.append(sr)
-                data_length = sr
-                # print("BBilicough Data length:", data_length)
-            st, en = int(min2sec(item[2]) * sr), int(min2sec(item[3]) * sr + 1)
-            if en > len(cur_wav):
-                en = len(cur_wav)
-            if en - st < 100:
-                raise Exception("Error Index.")
-            label = int(item[4])
-            sn = en - st
-            # sec = (en - st)/22050
-            if (pre_en is None):
-                if st >= data_length:
-                    st_pos = 0
-                    ind = 0
-                    while st_pos + data_length <= st:
-                        st_pos += data_length
-                        ind += 1
-                        if ind > 2:
-                            break
+        return {
+            'filename': self.noise_files[noise_id],
+            'st': st,
+            'en': st + remaining_duration,
+            'd_label': 0
+        }
+
+    def __finalize_sequence(self):
+        """完成当前序列构建"""
+        if self.current_seq and len(self.current_seq['segments']) > 0:
+            # 计算总持续时间
+            total_dur = self.current_seq['end'] - self.current_seq['start']
+
+            # 处理不足时长的情况
+            if total_dur < self.target_samples:
+                needed = self.target_samples - total_dur
+                noise_segment = self.__add_noise_segment(needed)
+                self.current_seq['segments'].append(noise_segment)
+                self.current_seq['end'] += needed
+
+            diseases = [s['d_label'] for s in self.current_seq['segments']]
+            labels = [0, 0, 0, 0]
+            # 这里有个问题，我没判断是否具有多个标签
+            if 1 in diseases:
+                labels[1] += 1
+            elif 2 in diseases:
+                labels[2] += 1
+            elif 3 in diseases:
+                labels[3] += 1
+            if labels[1] + labels[2] + labels[3] == 0:
+                label = 0
+            elif labels[1] > 0:
+                if labels[2] > 0 or labels[3] > 0:
+                    print("-------------------multi-label 1, 2 or 3!!!!!!!!!!!")
+                label = 1
+            elif labels[2] > 0:
+                if labels[3] > 0:
+                    print("-------------------multi-label 2 3!!!!!!!!!!!")
+                label = 2
+            elif labels[3] > 0:
+                label = 3
             else:
-                if st - pre_en >= sr:
-                    st_pos = pre_en
-                    ind = 0
-                    while st_pos + data_length <= st:
-                        st_pos += data_length
-                        ind += 1
-                        if ind > 2:
-                            break
-            if sn == data_length:
-                # if len(cur_wav[st:en]) != sr:
-                #     raise Exception("Error Length.")
-                if label not in [6, 7]:
-                    sample_list.append(cur_wav[st:en])
-                    label_list.append(label)
-            elif sn < data_length:
-                new_sample = np.zeros(data_length)
-                # print(st, en, sn, len(cur_wav), item[1])
-                if en <= len(cur_wav):
-                    new_sample[:sn] = cur_wav[st:en]
+                raise ValueError("Unknown reason that the label is None.")
+            # 添加到最终序列
+            # 其实这里忽略了噪声数据，后续我改改
+            self.sequences.append({
+                "filename": self.current_seq['filename'],
+                "start": self.current_seq['start'],
+                "end": self.current_seq['start'] + self.target_samples,
+                "labels": label,
+                "segments": self.current_seq["segments"]
+            })
+
+            # 处理截断残留（如果存在）
+            last_segment = self.current_seq['segments'][-1]
+            if type(last_segment['en']) == str:
+                last_segment['en'] = s2p(last_segment['en'])
+            # print(last_segment['en'], self.sequences[-1]['end'])
+            # print(last_segment)
+            if last_segment['en'] > self.sequences[-1]['end']:
+                residual = {
+                    "filename": last_segment['filename'],
+                    "st": self.sequences[-1]['end'],
+                    "en": last_segment['en'],
+                    "d_label": last_segment['d_label']
+                }
+                self.current_seq = {
+                    "filename": self.current_seq['filename'],
+                    "start": residual['st'],
+                    "end": residual['en'],
+                    "segments": [residual]
+                }
+            else:
+                self.current_seq = None
+
+    def genarate_series_batches(self):
+        """主处理流程
+            bcr = BiliCoughReader()
+            seqs = bcr.get_multi_event_batches()
+            for i in range(len(seqs)):
+                print('\"item{}\":'.format(i), seqs[i], ',')
+        """
+        # 按文件分组处理
+        for fname, group in self.scd_df.groupby('filename'):
+            self.current_seq = None  # 重置当前序列
+            # print("now filename:", fname)
+            for _, row in tqdm(group.iterrows(), desc="Now {}".format(fname)):
+                if row['d_label'] > 3:
+                    continue
+                # 初始化新序列
+                if self.current_seq is None:
+                    self.current_seq = {
+                        "filename": fname,
+                        "start": s2p(row['st']),
+                        "end": s2p(row['en']),
+                        "segments": [row.to_dict()]
+                    }
+                    continue
+
+                # 计算时间间隔
+                gap = s2p(row['st']) - self.current_seq['end']
+                # min2sec1(t1) - min2sec1(t2)
+                # 判断是否合并
+                if gap <= self.gap_threshold:
+                    # 合并到当前序列
+                    self.current_seq['end'] = s2p(row['en'])
+                    self.current_seq['segments'].append(row.to_dict())
+
+                    # 检查是否超长
+                    if (self.current_seq['end'] - self.current_seq['start']) >= self.target_samples:
+                        self.__finalize_sequence()
                 else:
-                    new_sample[:sn] = cur_wav[len(cur_wav) - sn:len(cur_wav)]
-                # if len(new_sample) != sr:
-                #     raise Exception("Error Length.")
-                if label not in [6, 7]:
-                    sample_list.append(new_sample)
-                    label_list.append(label)
-            else:
-                cnt_sum = sn // data_length + 1
-                res = cnt_sum * data_length - sn
-                overlap = res // (cnt_sum - 1)
-                st_pos = st
-                while st_pos + data_length < en:
-                    if label not in [6, 7]:
-                        sample_list.append(cur_wav[st_pos:st_pos + data_length])
-                        label_list.append(label)
-                    st_pos += data_length - overlap
-                if label not in [6, 7]:
-                    sample_list.append(cur_wav[en - data_length:en])
-                    label_list.append(label)
-            pre_st, pre_en = st, en
-        print("sound count:{}, all count:{}.".format(sum(label_list), len(label_list)))
-        print(sr_list)
-        self.sr = sr_list[0]
-        self.data_length = data_length
-        # name2label = {"breathe": 0, "cough": 2, "clearthroat": 1, "exhale": 3, "hum": 4, "inhale": 5, "noise": 6, "silence": 7,
-        #               "sniff": 8, "speech": 9, "vomit": 10, "whooping": 11}
-        # Since labels 6 and 7 represent noise and mute respectively, which have been filtered out in the previous step,
-        # it is necessary to squeeze labels 8, 9, 10 and 11 to subtract 2
-        final_label = []
-        for it in label_list:
-            if it > 7:
-                final_label.append(it - 2)
-            elif it < 6:
-                final_label.append(it)
-            else:
-                raise ValueError("Labels 6 and 7 cannot appear.")
-        return sample_list, final_label
+                    # 结束当前序列并创建新序列
+                    self.__finalize_sequence()
+                    self.current_seq = {
+                        "filename": fname,
+                        "start": s2p(row['st']),
+                        "end": s2p(row['en']),
+                        "segments": [row.to_dict()]
+                    }
+
+            # 处理文件末尾的残留序列
+            if self.current_seq is not None:
+                self.__finalize_sequence()
+        return self.sequences
 
 
 def add_the_disease_label():
@@ -429,6 +529,22 @@ def ffmpeg_mp42wav_list(kv_list):
     for (mp4name, wavname) in kv_list:
         print("ffmpeg -i {}.mp4 -f wav -ar 22050 {}.wav".format(ROOT + mp4name, ROOT + wavname))
         os.system("ffmpeg -i {}.mp4 -f wav -ar 22050 {}.wav".format(ROOT + mp4name, ROOT + wavname))
+
+    # strlist = ["bilicough_031,,WET_COUGH_VS_DRY_COUGH_Hear_the_Difference,male,adult",
+    #            "bilicough_032,,Have_you_heard_this_cough_before,female,child",
+    #            "bilicough_033,,Types_of_Coughs_in_60_Sec,male,adult",
+    #            "bilicough_034,,Dry_cough_sound_effect,male,adult",
+    #            "bilicough_035,,Smokers_Coughing_SOUND_EFFECT-Unhealthy_Cough_Ungesund_Raucherhusten_SOUNDS,male,adult",
+    #            "bilicough_036,,Some_wet_and_barking_coughing",
+    #            "bilicough_037,,Whooping_Cough_in_an_Adult",
+    #            "bilicough_038,,asthma"]
+    # kvlist = []
+    # ind = 31
+    # for stritem in strlist:
+    #     parts = stritem.split(',')
+    #     kvlist.append((parts[2], "bilicough_0{}".format(ind)))
+    #     ind += 1
+    # ffmpeg_mp42wav_list(kvlist)
 
 
 def generate_SCD_metainfo(task="scd"):
@@ -545,27 +661,16 @@ def generate_SCD_metainfo(task="scd"):
 
 
 if __name__ == '__main__':
-    strlist = ["bilicough_031,,WET_COUGH_VS_DRY_COUGH_Hear_the_Difference,male,adult",
-               "bilicough_032,,Have_you_heard_this_cough_before,female,child",
-               "bilicough_033,,Types_of_Coughs_in_60_Sec,male,adult",
-               "bilicough_034,,Dry_cough_sound_effect,male,adult",
-               "bilicough_035,,Smokers_Coughing_SOUND_EFFECT-Unhealthy_Cough_Ungesund_Raucherhusten_SOUNDS,male,adult",
-               "bilicough_036,,Some_wet_and_barking_coughing",
-               "bilicough_037,,Whooping_Cough_in_an_Adult",
-               "bilicough_038,,asthma"]
-    kvlist = []
-    ind = 31
-    for stritem in strlist:
-        parts = stritem.split(',')
-        kvlist.append((parts[2], "bilicough_0{}".format(ind)))
-        ind += 1
-    ffmpeg_mp42wav_list(kvlist)
-
-    # generate_SCD_metainfo(task="sed")
-
-    # bcr = BiliCoughReader()
-    # # ncr = NEUCoughReader()
-    # # cvr = CoughVIDReader()
+    # generate_SCD_metainfo(task="sed")  # generate metainfo.csv
+    # y, sr = librosa.load("G:/DATAS-Medical/BILINOISE/bilinoise_01.wav")
+    # print(len(y))
+    # y, sr = librosa.load("G:/DATAS-Medical/BILINOISE/bilinoise_02.wav")
+    # print(len(y))
+    bcr = BiliCoughReader()
+    bcr.get_multi_event_batches()
+    # print(seqs[10])
+    # ncr = NEUCoughReader()
+    # cvr = CoughVIDReader()
     # sample_list, label_list = [], []
     # tmp_sl, tmp_ll = bcr.get_sample_label_list(mode="sed")
     # sample_list.extend(tmp_sl)

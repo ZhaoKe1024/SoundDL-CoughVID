@@ -17,6 +17,7 @@ def load_bilinoise_dataset(NOISE_ROOT="G:/DATAS-Medical/BILINOISE/", noise_lengt
     new_noise_list = []
     new_label_list = []
     flist = []
+    # NOISE_ROOT = "G:/DATAS-Medical/BILINOISE/"
     for item in os.listdir(NOISE_ROOT):
         if item[-4:] == ".wav" and len(item) >= filter_length:
             flist.append(item)

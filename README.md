@@ -13,6 +13,18 @@
 - covid19_explore.ipynb: research for dataset covid19.
 
 # Data Readers:
+### dataset for c2VAD:
+ about bilicough_2vad.ipynb
+### dataset for c2SED:
+- bilicough_metainfo_c2sed.csv: generate from bilicough_1explore.ipynb
+### dataset for c4: 
+- bilicough_metainfo_c4scd_250307_dura.csv: 
+  - generate from the ./readers/bilicough_reader.py. 
+  - def generate_SCD_metainfo(task="scd"). 
+- ./datasets/metainfo4scd.json: 
+  - generate from the ./readers/bilicough_reader.py
+  - class BiliCoughReader(object).generate_SCD_metainfo(task="scd").
+### related code:
 - ./readers/*_reader.py
 - ./featurizer.py: transform waveform to Mel-Spectrogram.
 - ./readers/audio.py: Audio Processers.
@@ -35,7 +47,7 @@ train_loader = DataLoader(
             batch_size=self.configs["batch_size"], shuffle=True)
 ```
 
-# Machine (Deep) Learning Models for Chapter2,3,4
+# Machine (Deep) Learning Models for Chapter2,3,4(Private, omitted)
 - chapter2_VADmodel.py: Voice Activity Detection
 - chapter2_SEDmodel.py: Sound Events Detection
 - chapter3_ADRmodel.py: Attributed based Disentangled Representation

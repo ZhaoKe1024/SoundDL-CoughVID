@@ -128,7 +128,6 @@ class CSEDNN(nn.Module):
         # #     src_key_padding_mask=src_key_padding_mask
         # # )  # (T, B, d_model)
         # # print(output.shape)
-        #
         # 分类
         bs, _, lv_dim = combined.shape
         combined = combined.view(bs, self.multi_event_num, self.event_len, lv_dim)

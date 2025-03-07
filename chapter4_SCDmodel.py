@@ -19,14 +19,15 @@ from torch.utils.data import Dataset, DataLoader
 from models.tdnncnn import WSFNN
 from modules.attentions import MultiHeadAttention, SimpleGCNLayer
 from chapter2_SEDmodel import SEDModel
+from readers.bilicough_reader import BiliCoughReader
 
 
 def get_combined_batchs():
     print("Build the Dataset consisting of BiliCough, NeuCough, CoughVID19.")
-    # bcr = BiliCoughReader()
+    bcr = BiliCoughReader()
     # ncr = NEUCoughReader()
     # cvr = CoughVIDReader()
-    # bcr.get_multi_event_batches()
+    bcr.get_multi_event_batches()
     # ncr.get_multi_event_batches()
     # cvr.get_multi_event_batches()
 
@@ -63,7 +64,7 @@ class SCDCoughDataset(Dataset):
 class SCDModel(nn.Module):
     def __init__(self, e_class_num=6, d_class_num=4, seg_num=5, fuse_model="attn", cls_model="mlp",
                  latent_dim=1024, hidden_dim=64,
-                 vad_pretrain=False, sed_pretrain=False, freeze=True):
+                 vad_pretrain=False, sed_pretrain=False, freeze=True, usernn=False):
         super().__init__()
         print("Build SCDModel, seg_num:{}, class_num:{}.".format(seg_num, e_class_num))
         self.vad_model = WSFNN(class_num=2)
@@ -156,8 +157,9 @@ class SCDModel(nn.Module):
             out = out.mean(dim=1)
         else:
             raise ValueError("Unknown fused model:{}(at forward().).".format(self.fuse_model))
-        # print("out shape:", out.shape)
+        print("out shape:", out.shape)
         out = self.dropout(out)
+        print("out shape:", out.shape)
         logits = self.classifier(out)
         return logits
 
