@@ -259,6 +259,19 @@ class Trainer4SCD(object):
                 # self.optimizer.step()
             pbar.update(1)
 
+    def _CIS(self):
+       pass
+
+    def counterfactual(self, x_input, seg_ind):
+        x_input_c = x_input
+        x_input_c[:, seg_ind, :] = 0
+        return x_input_c
+
+    def causal_effect(self):
+        pass
+
+    def causal_relation(self):
+        pass
 
 if __name__ == '__main__':
     trainer = Trainer4SCD(mode="valid", )
